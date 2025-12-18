@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Railway Network Simulator (Cities + Clusters)</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow: hidden; }
+    #map { height: 100%; width: 100%; }
+
+    .panel{
+      position:absolute; top:16px; right:16px; z-index:1000;
+      background:rgba(255,255,255,0.96); backdrop-filter: blur(16px);
+      padding:14px; border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,0.22);
+      width:420px; max-height:86vh; overflow:auto; border:1px solid rgba(0,0,0,0.06);
+    }
+    .tabs{ display:flex; gap:6px; background:#f1f5f9; padding:6px; border-radius:12px; margin-bottom:12px; }
+    .tab{ flex:1; text-align:center; padding:10px 8px; border-radius:10px; font-weight:900; cursor:pointer; user-select:none; color:#64748b; }
+    .tab.active{ background:white; color:#2b6cff; box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+
+    .section{ padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid #e2e8f0; }
+    .section:last-child{ border-bottom:none; margin-bottom:0; padding-bottom:0; }
+    .title{ font-weight:1000; color:#0f172a; margin:0 0 4px 0; }
+    .sub{ color:#64748b; font-weight:800; font-size:12px; margin:0 0 10px 0; }
+
+    .btn{
+      width:100%; padding:12px; border:0; border-radius:10px; cursor:pointer; font-weight:1000;
+      background:linear-gradient(135deg,#2b6cff,#1a56db); color:white; user-select:none;
+      margin-top:8px;
+    }
+    .btn.secondary{ background:#f1f5f9; color:#0f172a; }
+    .btn.success{ background:linear-gradient(135deg,#10b981,#059669); }
+    .btn.warning{ background:linear-gradient(135deg,#f59e0b,#d97706); }
+    .btn.danger{ background:linear-gradient(135deg,#ef4444,#b91c1c); }
+    .row{ display:flex; gap:8px; }
+    .row .btn{ margin-top:0; }
+
+    .field{ width:100%; padding:10px 12px; border:2px solid #e2e8f0; border-radius:10px; font-weight:900; }
+    .field:focus{ outline:none; border-color:#2b6cff; box-shadow:0 0 0 3px rgba(43,108,255,0.08); }
+
+    .hint{
+      background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px;
+      padding:10px 12px; color:#334155; font-weight:850; font-size:12px;
+    }
+
+    .toast{
+      position:fixed; right:18px; bottom:18px; z-index:99999;
+      background:#0f172a; color:white; padding:12px 14px; border-radius:12px;
+      box-shadow:0 6px 20px rgba(0,0,0,0.25); font-weight:950; display:none;
+    }
+
+    .k{ color:#64748b; font-weight:900; }
+    .v{ color:#0f172a; font-weight:1000; }
+
+    .list{ border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; background:white; max-height:240px; overflow:auto; }
+    .item{ padding:10px 12px; border-bottom:1px solid #f1f5f9; cursor:pointer; user-select:none; }
+    .item:last-child{ border-bottom:none; }
+    .item:hover{ background:#f8fafc; }
+    .item.active{ background:#e0f2fe; border-left:4px solid #2b6cff; }
+
+    .badge{
+      display:inline-block; padding:2px 8px; border-radius:999px; font-weight:1000; font-size:11px;
+      background:#e2e8f0; color:#0f172a; margin-left:8px;
+    }
+
+    /* Bottom-left cluster exit */
+    #clusterBar{
+      position:absolute; left:16px; bottom:16px; z-index:1200;
+      background:rgba(255,255,255,0.96); backdrop-filter: blur(16px);
+      padding:10px 12px; border-radius:14px;
+      box-shadow:0 8px 24px rgba(0,0,0,0.22);
+      border:1px solid rgba(0,0,0,0.06);
+      display:none;
+      width:320px;
+    }
+    #clusterBar .rowTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    #clusterBar .name{ font-weight:1000; color:#0f172a; font-size:13px; }
+    #clusterBar .btnTiny{
+      border:0; border-radius:10px; padding:8px 10px; cursor:pointer; font-weight:1000;
+      background:#f1f5f9; color:#0f172a;
+    }
+
+    /* Track lane label */
+    .lane-label {
+      background: rgba(0,0,0,0.78);
+      color: white;
+      border-radius: 10px;
+      padding: 2px 7px;
+      font-weight: 1000;
+      font-size: 11px;
+      border: 1px solid rgba(255,255,255,0.35);
+      box-shadow: 0 6px 18px rgba(0,0,0,0.22);
+      line-height: 1.2;
+      user-select:none;
+      transform: translate(-50%, -50%);
+      white-space: nowrap;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+  <div id="controlPanel" class="panel"></div>
+  <div id="clusterBar"></div>
+  <div id="toast" class="toast"></div>
+
+<script type="module">
+  import { computeEconomy } from "./economy.js";
+
+  const CONFIG = {
+    CLUSTER_RADIUS_KM: 30,
+    CLUSTER_VIEW_MAX_ZOOM: 7,
+    SPAIN_VIEW: { center: [40.0, -3.7], zoom: 6 },
+
+    TRACK_COST_PER_KM: 5_000_000,
+    TRACK_MAINTENANCE_PER_KM: 250_000,
+
+    STARTING_BUDGET: 1_000_000_000,
+    ANNUAL_BUDGET: 100_000_000,
+
+    // simple production proxy (until real sector data)
+    PROD_EUR_PER_PERSON_MIN: 900,
+    PROD_EUR_PER_PERSON_MAX: 2200,
+
+    // line auto-build default lanes
+    LANES_PASSENGER: 1,
+    LANES_CARGO: 2,
+    LANES_MIXED: 2,
+
+    // how aggressively we avoid crossings when inserting stops
+    CROSSING_PENALTY: 1e9
+  };
+
+  // ---------- helpers ----------
+  function fmtNum(x){
+    if (x === null || x === undefined || Number.isNaN(Number(x))) return "—";
+    return Number(x).toLocaleString();
+  }
+  function formatCurrency(amount){
+    if (amount === null || amount === undefined || Number.isNaN(Number(amount))) return "—";
+    const a = Number(amount);
+    if (a >= 1e12) return '€' + (a/1e12).toFixed(2) + 'T';
+    if (a >= 1e9)  return '€' + (a/1e9).toFixed(2) + 'B';
+    if (a >= 1e6)  return '€' + (a/1e6).toFixed(2) + 'M';
+    if (a >= 1e3)  return '€' + (a/1e3).toFixed(0) + 'K';
+    return '€' + a.toFixed(0);
+  }
+  function showToast(msg, type="info"){
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.style.display = "block";
+    t.style.background =
+      type==="error" ? "#ef4444" :
+      type==="success" ? "#10b981" :
+      type==="warning" ? "#f59e0b" : "#0f172a";
+    setTimeout(()=> t.style.display="none", 2200);
+  }
+  async function loadJSON(url){
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to load ${url} (${res.status})`);
+    return await res.json();
+  }
+  function hash01(str){
+    let h = 2166136261;
+    for (let i=0;i<str.length;i++){
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return ((h >>> 0) % 1000000) / 1000000;
+  }
+  function distM(a, b){ return map.distance([a.lat, a.lon], [b.lat, b.lon]); }
+
+  // segment intersection test (lon/lat treated as planar for crossings avoidance)
+  function segIntersect(a,b,c,d){
+    // exclude shared endpoints
+    if ((a===c) || (a===d) || (b===c) || (b===d)) return false;
+
+    function orient(p,q,r){
+      return (q.lon - p.lon)*(r.lat - p.lat) - (q.lat - p.lat)*(r.lon - p.lon);
+    }
+    function onSeg(p,q,r){
+      return Math.min(p.lon,r.lon) <= q.lon && q.lon <= Math.max(p.lon,r.lon) &&
+             Math.min(p.lat,r.lat) <= q.lat && q.lat <= Math.max(p.lat,r.lat);
+    }
+    const o1 = orient(a,b,c);
+    const o2 = orient(a,b,d);
+    const o3 = orient(c,d,a);
+    const o4 = orient(c,d,b);
+
+    if (o1 === 0 && onSeg(a,c,b)) return true;
+    if (o2 === 0 && onSeg(a,d,b)) return true;
+    if (o3 === 0 && onSeg(c,a,d)) return true;
+    if (o4 === 0 && onSeg(c,b,d)) return true;
+
+    return (o1>0) !== (o2>0) && (o3>0) !== (o4>0);
+  }
+
+  // ---------- state ----------
+  const state = {
+    nodes: new Map(),    // id -> node
+    cities: [],
+    clusters: new Map(), // clusterId -> cluster
+
+    tracks: new Map(),   // trackId -> {id,from,to,lanes,cost,_layer,_label}
+    lines: new Map(),    // lineId -> {id,name,type,color,stops:[],circular}
+
+    year: 2024,
+    budget: CONFIG.STARTING_BUDGET,
+    annualBudget: CONFIG.ANNUAL_BUDGET,
+    revenue: 0,
+    costs: 0,
+    profit: 0,
+
+    activeTab: "network",
+    activeLine: null,
+
+    trackBuildMode: false,
+    pendingTrackNode: null,
+    pendingTrackLanes: 1,
+
+    activeClusterId: null,
+  };
+
+  // ---------- map + layers ----------
+  let map;
+  const layers = {
+    clusters: L.layerGroup(),
+    cities: L.layerGroup(),
+    tracks: L.layerGroup(),
+    trackLabels: L.layerGroup(),
+    lines: L.layerGroup(),
+  };
+
+  function initMap(){
+    map = L.map("map").setView(CONFIG.SPAIN_VIEW.center, CONFIG.SPAIN_VIEW.zoom);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "© OpenStreetMap contributors"
+    }).addTo(map);
+
+    layers.clusters.addTo(map);
+    layers.cities.addTo(map);
+    layers.tracks.addTo(map);
+    layers.trackLabels.addTo(map);
+    layers.lines.addTo(map);
+
+    map.on("zoomend moveend", () => {
+      syncMarkerVisibility();
+      if (state.activeClusterId && map.getZoom() <= CONFIG.CLUSTER_VIEW_MAX_ZOOM) {
+        leaveCluster(true);
+      }
+    });
+  }
+
+  // ---------- production proxy ----------
+  function estimateCityProductionEUR(city){
+    const pop = Number(city.population || 0);
+    const t = hash01(String(city.id || city.name || "x"));
+    const perPerson = CONFIG.PROD_EUR_PER_PERSON_MIN +
+      (CONFIG.PROD_EUR_PER_PERSON_MAX - CONFIG.PROD_EUR_PER_PERSON_MIN) * t;
+    return Math.round(pop * perPerson);
+  }
+
+  // ---------- clustering (greedy by population) ----------
+  function buildClusters(cities){
+    state.clusters.clear();
+
+    const usable = cities
+      .filter(c => Number(c?.lat) && Number(c?.lon) && Number(c?.population) >= 5000)
+      .map(c => ({
+        id: String(c.id),
+        name: c.name,
+        lat: Number(c.lat),
+        lon: Number(c.lon),
+        population: Number(c.population) || 0
+      }))
+      .sort((a,b) => (b.population||0) - (a.population||0));
+
+    const assigned = new Set();
+    const radiusM = CONFIG.CLUSTER_RADIUS_KM * 1000;
+
+    const cityProd = new Map();
+    for (const c of usable) cityProd.set(c.id, estimateCityProductionEUR(c));
+
+    for (const hub of usable) {
+      if (assigned.has(hub.id)) continue;
+
+      const clusterId = `CL-${hub.id}`;
+      const cityIds = new Set([hub.id]);
+      assigned.add(hub.id);
+
+      const bounds = L.latLngBounds([[hub.lat, hub.lon],[hub.lat, hub.lon]]);
+      let popSum = hub.population || 0;
+
+      let totalProduction = cityProd.get(hub.id) || 0;
+      let biggestProduction = cityProd.get(hub.id) || 0;
+
+      for (const c of usable) {
+        if (assigned.has(c.id)) continue;
+        if (distM(hub, c) <= radiusM) {
+          assigned.add(c.id);
+          cityIds.add(c.id);
+          popSum += c.population || 0;
+          bounds.extend([c.lat, c.lon]);
+
+          const p = cityProd.get(c.id) || 0;
+          totalProduction += p;
+          if (p > biggestProduction) biggestProduction = p;
+        }
+      }
+
+      state.clusters.set(clusterId, {
+        id: clusterId,
+        hubCityId: hub.id,
+        hubName: hub.name,
+        lat: hub.lat,
+        lon: hub.lon,
+        population: popSum,
+        cityIds,
+        bounds,
+        totalProduction,
+        biggestProduction
+      });
+    }
+
+    // nodes: clusters + cities
+    state.nodes.clear();
+    for (const cl of state.clusters.values()) {
+      state.nodes.set(cl.id, {
+        id: cl.id,
+        name: cl.hubName,
+        lat: cl.lat,
+        lon: cl.lon,
+        kind: "cluster",
+        population: cl.population,
+        production: cl.totalProduction,
+        biggestProduction: cl.biggestProduction,
+        hubCityId: cl.hubCityId
+      });
+    }
+    for (const c of usable) {
+      let clusterId = null;
+      for (const cl of state.clusters.values()) {
+        if (cl.cityIds.has(c.id)) { clusterId = cl.id; break; }
+      }
+      state.nodes.set(c.id, {
+        id: c.id,
+        name: c.name,
+        lat: c.lat,
+        lon: c.lon,
+        kind: "city",
+        population: c.population,
+        production: cityProd.get(c.id) || 0,
+        clusterId
+      });
+    }
+  }
+
+  // ---------- markers ----------
+  function renderClusterMarkers(){
+    layers.clusters.clearLayers();
+
+    for (const cl of state.clusters.values()) {
+      const marker = L.circleMarker([cl.lat, cl.lon], {
+        radius: 6,
+        color: "#0f172a",
+        weight: 2,
+        fillColor: "#0f172a",
+        fillOpacity: 0.9
+      });
+
+      marker.bindTooltip(
+        `<strong>${cl.hubName}</strong><br>` +
+        `Cluster pop: ${fmtNum(cl.population)}<br>` +
+        `Cities: ${fmtNum(cl.cityIds.size)}<br>` +
+        `Production (proxy): ${formatCurrency(cl.totalProduction)}<br>` +
+        `Biggest city prod: ${formatCurrency(cl.biggestProduction)}`
+      );
+
+      // left click = select node
+      marker.on("click", () => selectNode(cl.id));
+
+      // right click = zoom into cluster
+      marker.on("contextmenu", (e) => {
+        L.DomEvent.preventDefault(e);
+        enterCluster(cl.id);
+      });
+
+      marker.addTo(layers.clusters);
+    }
+  }
+
+  function renderCityMarkers(cityIds){
+    layers.cities.clearLayers();
+
+    for (const id of cityIds) {
+      const n = state.nodes.get(id);
+      if (!n || n.kind !== "city") continue;
+
+      // cities can be smaller circles (this view is already zoomed)
+      const m = L.circleMarker([n.lat, n.lon], {
+        radius: 4.5,
+        color: "#0f172a",
+        weight: 1,
+        fillColor: "#10b981",
+        fillOpacity: 0.78
+      });
+
+      m.bindTooltip(
+        `<strong>${n.name}</strong><br>` +
+        `Pop: ${fmtNum(n.population || 0)}<br>` +
+        `Production (proxy): ${formatCurrency(n.production || 0)}`
+      );
+
+      m.on("click", () => selectNode(n.id));
+      m.addTo(layers.cities);
+    }
+  }
+
+  function syncMarkerVisibility(){
+    const z = map.getZoom();
+    if (z <= CONFIG.CLUSTER_VIEW_MAX_ZOOM) {
+      layers.clusters.addTo(map);
+      layers.cities.clearLayers();
+      return;
+    }
+
+    layers.clusters.removeFrom(map);
+
+    if (state.activeClusterId && state.clusters.has(state.activeClusterId)) {
+      renderCityMarkers(state.clusters.get(state.activeClusterId).cityIds);
+      return;
+    }
+
+    const b = map.getBounds();
+    const visible = [];
+    for (const n of state.nodes.values()) {
+      if (n.kind !== "city") continue;
+      if (b.contains([n.lat, n.lon])) visible.push(n.id);
+      if (visible.length >= 1500) break;
+    }
+    renderCityMarkers(visible);
+  }
+
+  // ---------- cluster enter/leave ----------
+  function enterCluster(clusterId){
+    const cl = state.clusters.get(clusterId);
+    if (!cl) return;
+
+    state.activeClusterId = clusterId;
+    map.fitBounds(cl.bounds.pad(0.25), { maxZoom: 11 });
+
+    updateClusterBar();
+    syncMarkerVisibility();
+    updateUI();
+    showToast(`Entered cluster: ${cl.hubName}`, "success");
+  }
+
+  function leaveCluster(silent=false){
+    state.activeClusterId = null;
+    updateClusterBar();
+    map.setView(CONFIG.SPAIN_VIEW.center, CONFIG.SPAIN_VIEW.zoom);
+    syncMarkerVisibility();
+    updateUI();
+    if (!silent) showToast("Left cluster view", "info");
+  }
+
+  function updateClusterBar(){
+    const bar = document.getElementById("clusterBar");
+    if (!state.activeClusterId) {
+      bar.style.display = "none";
+      bar.innerHTML = "";
+      return;
+    }
+    const cl = state.clusters.get(state.activeClusterId);
+    if (!cl) { bar.style.display="none"; bar.innerHTML=""; return; }
+
+    bar.style.display = "block";
+    bar.innerHTML = `
+      <div class="rowTop">
+        <div>
+          <div class="name">Zoomed in: ${cl.hubName}</div>
+          <div style="font-size:12px;color:#64748b;font-weight:900;">
+            Cities: ${fmtNum(cl.cityIds.size)} • Pop: ${fmtNum(cl.population)}
+          </div>
+        </div>
+        <button class="btnTiny" id="leaveClusterBtn">Leave</button>
+      </div>
+      <div style="margin-top:8px;" class="hint">
+        <b>Global:</b> connect to the dot (cluster hub). <b>Zoomed:</b> target real cities.
+      </div>
+    `;
+    document.getElementById("leaveClusterBtn").onclick = () => leaveCluster(false);
+  }
+
+  // ---------- tracks ----------
+  function calculateTrackCost(a, b, lanes=1){
+    const km = (map.distance([a.lat,a.lon],[b.lat,b.lon]) / 1000) || 0;
+    const constructionCost = km * CONFIG.TRACK_COST_PER_KM * lanes;
+    const maintenanceCost = km * CONFIG.TRACK_MAINTENANCE_PER_KM * lanes;
+    return { distanceKm: km, constructionCost, maintenanceCost, lanes };
+  }
+
+  function trackKey(fromId, toId){
+    return `TK-${[fromId,toId].sort().join("—")}`;
+  }
+
+  function addOrUpdateTrack(fromId, toId, lanes=1, silent=false){
+    const a = state.nodes.get(fromId);
+    const b = state.nodes.get(toId);
+    if (!a || !b) return null;
+
+    const id = trackKey(fromId, toId);
+
+    // remove existing visuals if present
+    if (state.tracks.has(id)) {
+      const old = state.tracks.get(id);
+      if (old?._layer) layers.tracks.removeLayer(old._layer);
+      if (old?._label) layers.trackLabels.removeLayer(old._label);
+      state.tracks.delete(id);
+    }
+
+    const cost = calculateTrackCost(a, b, lanes);
+    state.budget -= cost.constructionCost;
+
+    // black track line
+    const line = L.polyline([[a.lat,a.lon],[b.lat,b.lon]], {
+      color: "#000",
+      weight: 2 + lanes*1.6,
+      opacity: 0.92,
+      lineCap: "round"
+    }).addTo(layers.tracks);
+
+    // lane label at midpoint
+    const mid = [(a.lat+b.lat)/2, (a.lon+b.lon)/2];
+    const label = L.marker(mid, {
+      interactive: false,
+      icon: L.divIcon({
+        className: "",
+        iconSize: [0,0],
+        html: `<div class="lane-label">${lanes}</div>`
+      })
+    }).addTo(layers.trackLabels);
+
+    line.bindTooltip(`Track • ${lanes} lane${lanes>1?'s':''}`);
+
+    line.on("click", () => {
+      if (!confirm("Delete this track segment?")) return;
+      layers.tracks.removeLayer(line);
+      layers.trackLabels.removeLayer(label);
+      state.tracks.delete(id);
+      updateUI();
+      renderLines();
+      showToast("Track deleted", "warning");
+    });
+
+    state.tracks.set(id, { id, from: fromId, to: toId, lanes, cost, _layer: line, _label: label });
+
+    if (!silent) showToast(`Built track: ${a.name} → ${b.name}`, "success");
+    updateUI();
+    renderLines();
+    return id;
+  }
+
+  // manual track build mode (chains)
+  function handleTrackBuildClick(node){
+    if (!state.pendingTrackNode) {
+      state.pendingTrackNode = node;
+      showToast(`Track: start = ${node.name}`, "info");
+      updateUI();
+      return;
+    }
+    const a = state.pendingTrackNode;
+    const b = node;
+
+    if (a.id === b.id) {
+      showToast("Pick a different node", "warning");
+      updateUI();
+      return;
+    }
+
+    addOrUpdateTrack(a.id, b.id, state.pendingTrackLanes || 1);
+
+    // chain from last node
+    state.pendingTrackNode = b;
+    showToast(`Track: next start = ${b.name}`, "info");
+    updateUI();
+  }
+
+  // ---------- lines ----------
+  function addLine(name, type="passenger", color=null, circular=false){
+    const id = `LN-${Date.now()}`;
+    const lineColor = color || (type==="cargo" ? "#ef4444" : type==="mixed" ? "#6b7280" : "#2b6cff");
+    state.lines.set(id, { id, name, type, color: lineColor, stops: [], circular: !!circular });
+    state.activeLine = id;
+    showToast(`Created line: ${name}`, "success");
+    updateUI();
+    renderLines();
+  }
+
+  function defaultLanesForLine(line){
+    if (!line) return 1;
+    if (line.type === "cargo") return CONFIG.LANES_CARGO;
+    if (line.type === "mixed") return CONFIG.LANES_MIXED;
+    return CONFIG.LANES_PASSENGER;
+  }
+
+  function polyLength(stops){
+    let total = 0;
+    for (let i=0;i<stops.length-1;i++){
+      const A = state.nodes.get(stops[i]);
+      const B = state.nodes.get(stops[i+1]);
+      if (A && B) total += map.distance([A.lat,A.lon],[B.lat,B.lon]);
+    }
+    return total;
+  }
+
+  function countCrossings(stops){
+    const pts = stops.map(id => state.nodes.get(id)).filter(Boolean);
+    let crossings = 0;
+    for (let i=0;i<pts.length-1;i++){
+      const a = pts[i], b = pts[i+1];
+      for (let j=i+2;j<pts.length-1;j++){
+        const c = pts[j], d = pts[j+1];
+        if (segIntersect(a,b,c,d)) crossings++;
+      }
+    }
+    return crossings;
+  }
+
+  // SMART stop insertion:
+  // - tries all insertion positions
+  // - minimizes (total length + crossing penalty * crossings)
+  function insertStopSmart(line, nodeId){
+    if (!line) return;
+    if (line.stops.includes(nodeId)) return;
+
+    if (line.stops.length < 2) {
+      line.stops.push(nodeId);
+      return;
+    }
+
+    const best = { idx: line.stops.length, score: Infinity };
+    for (let i=0;i<=line.stops.length;i++){
+      const candidate = line.stops.slice();
+      candidate.splice(i, 0, nodeId);
+
+      const L = polyLength(candidate);
+      const X = countCrossings(candidate);
+      const score = L + CONFIG.CROSSING_PENALTY * X;
+
+      if (score < best.score) { best.idx = i; best.score = score; }
+    }
+
+    line.stops.splice(best.idx, 0, nodeId);
+  }
+
+  function ensureLineTracks(line){
+    if (!line || line.stops.length < 2) return;
+
+    const lanes = defaultLanesForLine(line);
+
+    // Build consecutive segments (and closing segment if circular)
+    const pairs = [];
+    for (let i=0;i<line.stops.length-1;i++) pairs.push([line.stops[i], line.stops[i+1]]);
+    if (line.circular && line.stops.length >= 3) pairs.push([line.stops[line.stops.length-1], line.stops[0]]);
+
+    for (const [a,b] of pairs) {
+      const id = trackKey(a,b);
+      if (state.tracks.has(id)) continue;
+      addOrUpdateTrack(a,b,lanes,true);
+    }
+  }
+
+  function renderLines(){
+    layers.lines.clearLayers();
+
+    for (const line of state.lines.values()){
+      if (!Array.isArray(line.stops) || line.stops.length < 2) continue;
+
+      const latlngs = [];
+      for (const id of line.stops){
+        const n = state.nodes.get(id);
+        if (n) latlngs.push([n.lat,n.lon]);
+      }
+      if (latlngs.length < 2) continue;
+      if (line.circular && latlngs.length >= 3) latlngs.push(latlngs[0]);
+
+      L.polyline(latlngs, {
+        color: line.color,
+        weight: line.id === state.activeLine ? 5 : 3,
+        opacity: line.id === state.activeLine ? 0.85 : 0.55,
+        dashArray: line.type === "cargo" ? "10,10" : null
+      }).addTo(layers.lines)
+        .bindTooltip(`${line.name} (${line.type})${line.circular ? " ⟳" : ""}`);
+    }
+  }
+
+  // ---------- node selection ----------
+  function selectNode(nodeId){
+    const node = state.nodes.get(nodeId);
+    if (!node) return;
+
+    // Track build mode takes precedence
+    if (state.activeTab === "tracks" && state.trackBuildMode) {
+      handleTrackBuildClick(node);
+      return;
+    }
+
+    // Add stop to active line (smart insertion), then auto-build tracks
+    if (state.activeLine && state.lines.has(state.activeLine)) {
+      const line = state.lines.get(state.activeLine);
+      insertStopSmart(line, nodeId);
+      ensureLineTracks(line);
+      showToast(`Added stop: ${node.name}`, "success");
+      renderLines();
+      updateUI();
+      return;
+    }
+
+    map.setView([node.lat, node.lon], Math.max(map.getZoom(), 8));
+  }
+
+  // ---------- simulation ----------
+  function simulateYear(){
+    try {
+      state.year++;
+      state.budget += state.annualBudget;
+
+      computeEconomy(state, map);
+
+      showToast(
+        `Year ${state.year} simulated. Profit: ${formatCurrency(state.profit)}`,
+        state.profit >= 0 ? "success" : "error"
+      );
+
+      updateUI();
+    } catch (e) {
+      console.error(e);
+      showToast("Simulation crashed", "error");
+    }
+  }
+
+  // ---------- UI ----------
+  function switchTab(tab){
+    state.activeTab = tab;
+    if (tab !== "tracks") {
+      state.trackBuildMode = false;
+      state.pendingTrackNode = null;
+    }
+    updateUI();
+  }
+
+  function setTrackBuildMode(on){
+    state.trackBuildMode = !!on;
+    state.pendingTrackNode = null;
+    updateUI();
+    showToast(on ? "Track mode ON: click nodes to chain-build" : "Track mode OFF", on ? "success" : "warning");
+  }
+
+  function setTrackLanes(n){
+    state.pendingTrackLanes = Number(n)||1;
+    updateUI();
+  }
+
+  function createNewLine(){
+    const name = document.getElementById("lineName")?.value?.trim() || "New Line";
+    const type = document.getElementById("lineType")?.value || "passenger";
+    const circular = !!document.getElementById("lineCircular")?.checked;
+    addLine(name, type, null, circular);
+  }
+
+  function selectLine(id){
+    state.activeLine = id;
+    renderLines();
+    updateUI();
+  }
+
+  function toggleCircularActive(){
+    const line = state.lines.get(state.activeLine);
+    if (!line) return;
+    line.circular = !line.circular;
+    ensureLineTracks(line);
+    renderLines();
+    updateUI();
+    showToast(line.circular ? "Line set to circular" : "Line set to non-circular", "success");
+  }
+
+  function deleteActiveLine(){
+    const id = state.activeLine;
+    if (!id) return;
+    if (!confirm("Delete active line?")) return;
+    state.lines.delete(id);
+    state.activeLine = null;
+    renderLines();
+    updateUI();
+    showToast("Line deleted", "warning");
+  }
+
+  function clearAllTracks(){
+    layers.tracks.clearLayers();
+    layers.trackLabels.clearLayers();
+    state.tracks.clear();
+    state.pendingTrackNode = null;
+    renderLines();
+    updateUI();
+    showToast("Cleared all tracks", "warning");
+  }
+
+  function kv(k, v){
+    return `<span class="k">${k}:</span> <span class="v">${v}</span>`;
+  }
+
+  function updateUI(){
+    const panel = document.getElementById("controlPanel");
+
+    const linesArr = Array.from(state.lines.values());
+    const linesList = linesArr.map(l => `
+      <div class="item ${l.id===state.activeLine ? "active" : ""}" onclick="selectLine('${l.id}')">
+        <div style="font-weight:1000;color:#0f172a">${l.name}${l.circular ? " ⟳" : ""}</div>
+        <div style="font-size:12px;font-weight:900;color:#64748b">${l.stops.length} stops • ${l.type}</div>
+      </div>
+    `).join("");
+
+    const activeCluster = state.activeClusterId ? state.clusters.get(state.activeClusterId) : null;
+
+    panel.innerHTML = `
+      <div class="section">
+        <h3 class="title">Railway Network Simulator</h3>
+        <p class="sub">
+          Year: <b>${state.year}</b> • Budget: <b>${formatCurrency(state.budget)}</b>
+          ${activeCluster ? `<span class="badge">In: ${activeCluster.hubName}</span>` : `<span class="badge">Spain</span>`}
+        </p>
+
+        <div class="tabs">
+          <div class="tab ${state.activeTab==="network"?"active":""}" onclick="switchTab('network')">Network</div>
+          <div class="tab ${state.activeTab==="tracks"?"active":""}" onclick="switchTab('tracks')">Tracks</div>
+          <div class="tab ${state.activeTab==="economy"?"active":""}" onclick="switchTab('economy')">Economy</div>
+        </div>
+      </div>
+
+      ${state.activeTab==="network" ? `
+        <div class="section">
+          <div class="hint">
+            <b>Zoomed out:</b> clusters are dots. Left-click adds them to lines / tracks. Right-click zooms in.<br>
+            <b>Zoomed in:</b> click real cities for realism.
+          </div>
+
+          <button class="btn success" onclick="simulateYear()">Simulate Next Year</button>
+        </div>
+
+        <div class="section">
+          <div style="font-weight:1000;color:#0f172a;margin-bottom:8px;">Create Line</div>
+          <input id="lineName" class="field" placeholder="Line name" />
+          <div style="height:8px"></div>
+          <select id="lineType" class="field">
+            <option value="passenger">Passenger</option>
+            <option value="cargo">Cargo</option>
+            <option value="mixed">Mixed</option>
+          </select>
+          <div style="height:8px"></div>
+          <label style="display:flex;gap:10px;align-items:center;font-weight:900;color:#334155;">
+            <input id="lineCircular" type="checkbox" />
+            Circular line
+          </label>
+          <button class="btn" onclick="createNewLine()">Create Line</button>
+        </div>
+
+        <div class="section">
+          <div style="font-weight:1000;color:#0f172a;margin-bottom:8px;">Lines</div>
+          <div class="list">${linesList || `<div style="padding:14px;color:#64748b;font-weight:1000;">No lines yet</div>`}</div>
+
+          <div class="row" style="margin-top:10px;">
+            <button class="btn secondary" onclick="toggleCircularActive()">Toggle circular</button>
+            <button class="btn danger" onclick="deleteActiveLine()">Delete line</button>
+          </div>
+
+          <div class="hint" style="margin-top:10px;">
+            Stop insertion is <b>geometry-aware</b>: each click inserts the stop where it creates the shortest,
+            least-crossing route. It also auto-builds the missing track segments for that line.
+          </div>
+        </div>
+      ` : ""}
+
+      ${state.activeTab==="tracks" ? `
+        <div class="section">
+          <div class="hint">
+            Turn on Track mode, then click nodes to build segments. It chains: after A→B, the next click builds B→C.
+          </div>
+
+          <button class="btn ${state.trackBuildMode ? "warning" : "success"}"
+            onclick="setTrackBuildMode(${!state.trackBuildMode})">
+            ${state.trackBuildMode ? "Track Mode: ON" : "Track Mode: OFF"}
+          </button>
+
+          <div style="margin-top:10px;">
+            <div class="k">Lanes</div>
+            <select class="field" onchange="setTrackLanes(this.value)">
+              <option value="1" ${state.pendingTrackLanes===1?"selected":""}>1 lane</option>
+              <option value="2" ${state.pendingTrackLanes===2?"selected":""}>2 lanes</option>
+              <option value="3" ${state.pendingTrackLanes===3?"selected":""}>3 lanes</option>
+              <option value="4" ${state.pendingTrackLanes===4?"selected":""}>4 lanes</option>
+            </select>
+          </div>
+
+          <div class="hint" style="margin-top:10px;">
+            Current start node: <b>${state.pendingTrackNode ? state.pendingTrackNode.name : "—"}</b>
+          </div>
+
+          <button class="btn danger" onclick="clearAllTracks()">Clear ALL tracks</button>
+        </div>
+      ` : ""}
+
+      ${state.activeTab==="economy" ? `
+        <div class="section">
+          <div class="hint">
+            Economy simulates flows of “exports” (production proxy) and “needs” (population proxy) over your built tracks.
+            Unconnected areas can’t trade, so they lose revenue.
+          </div>
+          <div style="margin-top:10px;">
+            <div>${kv("Annual revenue", formatCurrency(state.revenue))}</div>
+            <div>${kv("Annual costs", formatCurrency(state.costs))}</div>
+            <div>${kv("Annual profit", `<span style="color:${state.profit>=0?"#10b981":"#ef4444"}">${formatCurrency(state.profit)}</span>`)}</div>
+          </div>
+
+          <button class="btn warning" onclick="simulateYear()">Simulate Next Year</button>
+        </div>
+      ` : ""}
+    `;
+  }
+
+  // ---------- init ----------
+  async function boot(){
+    initMap();
+
+    const cities = await loadJSON("./cities_es.json");
+    state.cities = Array.isArray(cities) ? cities : (Array.isArray(cities?.cities) ? cities.cities : cities);
+
+    buildClusters(state.cities);
+    renderClusterMarkers();
+
+    syncMarkerVisibility();
+    updateClusterBar();
+    updateUI();
+
+    showToast(`Loaded cities: ${fmtNum(state.cities.length)} • clusters: ${fmtNum(state.clusters.size)}`, "success");
+  }
+
+  // expose globals for inline onclick
+  window.switchTab = switchTab;
+  window.simulateYear = simulateYear;
+  window.setTrackBuildMode = setTrackBuildMode;
+  window.setTrackLanes = setTrackLanes;
+  window.createNewLine = createNewLine;
+  window.selectLine = selectLine;
+  window.toggleCircularActive = toggleCircularActive;
+  window.deleteActiveLine = deleteActiveLine;
+  window.clearAllTracks = clearAllTracks;
+
+  boot().catch(err => {
+    console.error(err);
+    showToast("Failed to load data files", "error");
+    document.getElementById("controlPanel").innerHTML = `
+      <div class="section">
+        <h3 class="title">Load error</h3>
+        <div class="hint">
+          ${String(err)}<br><br>
+          Make sure these files sit next to <code>index.html</code>:<br>
+          • <b>cities_es.json</b><br>
+          • <b>economy.js</b><br><br>
+          Run a local server, e.g. <code>python -m http.server 8000</code>
+        </div>
+      </div>
+    `;
+  });
+</script>
+</body>
+</html>
