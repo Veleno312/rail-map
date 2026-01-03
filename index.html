@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Railway Network Simulator (Cities + Clusters)</title>
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow: hidden; }
+    #map { height: 100%; width: 100%; }
+
+.node-hover-tip{
+  background: rgba(255,255,255,0.95);
+  border: 1px solid rgba(15,23,42,0.18);
+  border-radius: 12px;
+  padding: 8px 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+}
+
+
+    .panel{
+      position:absolute; top:16px; right:16px; z-index:1000;
+      background:rgba(255,255,255,0.96); backdrop-filter: blur(16px);
+      padding:14px; border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,0.22);
+      width:420px; max-height:86vh; overflow:auto; border:1px solid rgba(0,0,0,0.06);
+    }
+    .tabs{ display:flex; gap:6px; background:#f1f5f9; padding:6px; border-radius:12px; margin-bottom:12px; }
+    .tab{ flex:1; text-align:center; padding:10px 8px; border-radius:10px; font-weight:900; cursor:pointer; user-select:none; color:#64748b; }
+    .tab.active{ background:white; color:#2b6cff; box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+
+    .section{ padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid #e2e8f0; }
+    .section:last-child{ border-bottom:none; margin-bottom:0; padding-bottom:0; }
+    .title{ font-weight:1000; color:#0f172a; margin:0 0 4px 0; }
+    .sub{ color:#64748b; font-weight:800; font-size:12px; margin:0 0 10px 0; }
+/* Busy station ring pulse */
+.station-busy {
+  animation: stationPulse 2.6s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes stationPulse {
+  0% {
+    stroke-opacity: calc(0.15 * var(--pulse-strength, 1));
+    stroke-width: 1.5;
+  }
+  50% {
+    stroke-opacity: calc(0.9 * var(--pulse-strength, 1));
+    stroke-width: 4;
+  }
+  100% {
+    stroke-opacity: calc(0.15 * var(--pulse-strength, 1));
+    stroke-width: 1.5;
+  }
+}
+
+/* === Active line editor layout fix === */
+.lineInspectorGrid{
+  display:grid;
+  grid-template-columns: 120px 1fr 1fr;
+  gap:10px;
+  align-items:end;
+  margin-top:10px;
+}
+
+.liField .liLabel{
+  font-weight:900;
+  color:#334155;
+  font-size:12px;
+  margin-bottom:6px;
+}
+
+.lineInspectorGrid .field{
+  width:100%;
+  height:38px;
+  box-sizing:border-box;
+}
+
+
+
+    .btn{
+      width:100%; padding:12px; border:0; border-radius:10px; cursor:pointer; font-weight:1000;
+      background:linear-gradient(135deg,#2b6cff,#1a56db); color:white; user-select:none;
+      margin-top:8px;
+    }
+    .btn.secondary{ background:#f1f5f9; color:#0f172a; }
+    .btn.success{ background:linear-gradient(135deg,#10b981,#059669); }
+    .btn.warning{ background:linear-gradient(135deg,#f59e0b,#d97706); }
+    .btn.danger{ background:linear-gradient(135deg,#ef4444,#b91c1c); }
+    .row{ display:flex; gap:8px; }
+    .row .btn{ margin-top:0; }
+
+    .field{ width:100%; padding:10px 12px; border:2px solid #e2e8f0; border-radius:10px; font-weight:900; }
+    .field:focus{ outline:none; border-color:#2b6cff; box-shadow:0 0 0 3px rgba(43,108,255,0.08); }
+
+    .hint{
+      background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px;
+      padding:10px 12px; color:#334155; font-weight:850; font-size:12px;
+    }
+
+    .toast{
+      position:fixed; right:18px; bottom:18px; z-index:99999;
+      background:#0f172a; color:white; padding:12px 14px; border-radius:12px;
+      box-shadow:0 6px 20px rgba(0,0,0,0.25); font-weight:950; display:none;
+    }
+
+    .k{ color:#64748b; font-weight:900; }
+    .v{ color:#0f172a; font-weight:1000; }
+
+    .list{ border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; background:white; max-height:240px; overflow:auto; }
+    .item{ padding:10px 12px; border-bottom:1px solid #f1f5f9; cursor:pointer; user-select:none; }
+    .item:last-child{ border-bottom:none; }
+    .item:hover{ background:#f8fafc; }
+    .item.active{ background:#e0f2fe; border-left:4px solid #2b6cff; }
+
+    .badge{
+      display:inline-block; padding:2px 8px; border-radius:999px; font-weight:1000; font-size:11px;
+      background:#e2e8f0; color:#0f172a; margin-left:8px;
+    }
+
+    /* Bottom-left cluster exit */
+    #clusterBar{
+      position:absolute; left:16px; bottom:16px; z-index:1200;
+      background:rgba(255,255,255,0.96); backdrop-filter: blur(16px);
+      padding:10px 12px; border-radius:14px;
+      box-shadow:0 8px 24px rgba(0,0,0,0.22);
+      border:1px solid rgba(0,0,0,0.06);
+      display:none;
+      width:320px;
+    }
+    #clusterBar .rowTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    #clusterBar .name{ font-weight:1000; color:#0f172a; font-size:13px; }
+    #clusterBar .btnTiny{
+      border:0; border-radius:10px; padding:8px 10px; cursor:pointer; font-weight:1000;
+      background:#f1f5f9; color:#0f172a;
+    }
+
+    /* Cluster dots (same size always) */
+    .cluster-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.9);
+      box-shadow: 0 8px 18px rgba(0,0,0,0.18);
+      border: 2px solid rgba(255,255,255,0.85);
+    }
+    .cluster-dot.active {
+      outline: 4px solid rgba(16,185,129,0.35);
+      border-color: rgba(255,255,255,1);
+    }
+
+    /* Track lane label at midpoint */
+    .lane-label{
+      background: rgba(0,0,0,0.85);
+      color: white;
+      border-radius: 10px;
+      padding: 2px 6px;
+      font-weight: 1000;
+      font-size: 12px;
+      line-height: 1;
+      border: 1px solid rgba(255,255,255,0.25);
+      box-shadow: 0 8px 18px rgba(0,0,0,0.20);
+      pointer-events: none;
+    }
+
+/* === Track lane count label === */
+.track-lane-label{
+  color:#fff;
+  font-weight:1000;
+  font-size:14px;
+  line-height:1;
+  white-space:nowrap;
+  pointer-events:none;
+
+  /* “halo” outline so white text is readable on any map */
+  text-shadow:
+    -1px -1px 0 rgba(0,0,0,0.85),
+     1px -1px 0 rgba(0,0,0,0.85),
+    -1px  1px 0 rgba(0,0,0,0.85),
+     1px  1px 0 rgba(0,0,0,0.85),
+     0px  2px 6px rgba(0,0,0,0.70);
+}
+
+/* Mode bar (top-left) */
+#modeBar{
+  position:absolute;
+  left:16px;
+  top:16px;
+  z-index:1300;
+  background:rgba(15,23,42,0.88);
+  color:#fff;
+  padding:10px 12px;
+  border-radius:14px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.22);
+  border:1px solid rgba(255,255,255,0.14);
+  min-width:240px;
+}
+#modeBar .row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+#modeBar .mode{
+  font-weight:1000;
+  letter-spacing:0.3px;
+}
+#modeBar .pill{
+  display:inline-block;
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:1000;
+  background:rgba(255,255,255,0.14);
+}
+#modeBar .detail{
+  margin-top:2px;
+  font-size:12px;
+  font-weight:900;
+  color:rgba(255,255,255,0.78);
+}
+#modeBar .keys{
+  margin-top:8px;
+  font-size:11px;
+  font-weight:900;
+  color:rgba(255,255,255,0.62);
+}
+
+/* Line legend (top-right) */
+#lineLegend{
+  position:absolute;
+  left:16px;
+  bottom:16px;
+  z-index:1300;
+  background:rgba(255,255,255,0.92);
+  color:#0f172a;
+  padding:10px 12px;
+  border-radius:14px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.18);
+  border:1px solid rgba(15,23,42,0.12);
+  min-width:240px;
+  max-width:320px;
+}
+#lineLegend .title{
+  font-weight:1000;
+  margin-bottom:8px;
+}
+#lineLegend .item{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:6px 8px;
+  border-radius:10px;
+  cursor:pointer;
+}
+#lineLegend .item:hover{
+  background:rgba(15,23,42,0.06);
+}
+#lineLegend .left{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+#lineLegend .swatch{
+  width:12px;
+  height:12px;
+  border-radius:4px;
+  border:1px solid rgba(0,0,0,0.22);
+  flex:0 0 12px;
+}
+#lineLegend .name{
+  font-weight:1000;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+#lineLegend .meta{
+  font-size:11px;
+  font-weight:900;
+  color:#64748b;
+  white-space:nowrap;
+}
+#lineLegend .active{
+  outline:2px solid rgba(43,108,255,0.55);
+}
+
+
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+  <div id="controlPanel" class="panel"></div>
+  <div id="clusterBar"></div>
+  <div id="modeBar"></div>
+  <div id="lineLegend"></div>
+  <div id="toast" class="toast"></div>
+
+<script type="module" src="/economy.js"></script>
+  <script type="module" src="/app/shim_economy.js"></script>
+<script type="module" src="/dynamics.js"></script>
+  <script type="module" src="/app/shim_dynamics.js"></script>
+
+<!--
+  NOTE:
+  - economy.js and dynamics.js are loaded as classic scripts (not ES modules).
+  - Keep these files next to index.html (same folder).
+  - Serve via a local web server (Vite or python -m http.server).
+-->
+
+
+
+  <!-- Split app scripts (classic, shared global scope) -->
+  <script src="/app/core.js"></script>
+  <script src="/app/service_clock.js"></script>
+  <script src="/app/map_layers.js"></script>
+  <script src="/app/network.js"></script>
+  <script src="/app/ui.js"></script>
+  <script src="/app/sim.js"></script>
+  <script src="/app/init.js"></script>
+
+</body>
+</html>

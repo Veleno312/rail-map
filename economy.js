@@ -181,7 +181,12 @@ export function computeEconomy(state, map) {
   state.revenue = revenue;
   state.costs = maintenanceTotal + opCosts;
   state.profit = state.revenue - state.costs;
-
-  // keep budget effect outside if you want; your index.html already adds annualBudget and uses profit
+// keep budget effect outside if you want; your index.html already adds annualBudget and uses profit
   return state;
 }
+
+// Make available to index.html without Vite import (public/ limitation)
+if (typeof window !== "undefined") {
+  window.computeEconomy = computeEconomy;
+}
+

@@ -1,0 +1,79 @@
+rail-map/
+├─ public/
+│  ├─ index.html
+│  ├─ js/
+│  │  ├─ app.js
+│  │  ├─ scenario_loader.js        (loads packs/tiles on demand)
+│  │  ├─ save_load.js              (save pins to dataset + tiles loaded)
+│  │  ├─ sim/...
+│  │  └─ map/...
+│  │
+│  └─ data/
+│     ├─ manifest.json             (top-level: what datasets exist + latest versions)
+│     ├─ world/
+│     │  ├─ 2026Q1/                (a global snapshot version)
+│     │  │  ├─ meta.json           (version notes, sources, licenses)
+│     │  │  ├─ index/
+│     │  │  │  ├─ countries.json.gz    (ISO code -> bounding boxes, default start nodes)
+│     │  │  │  ├─ tiles.json.gz        (tile id -> bbox + file list + sizes)
+│     │  │  │  ├─ admin_levels.json.gz (admin boundaries mapping)
+│     │  │  │  └─ ports_airports.json.gz (optional global POIs)
+│     │  │  │
+│     │  │  ├─ countries/           (optional convenience packs; not required)
+│     │  │  │  ├─ ES.json.gz        (Spain “starter pack” references tiles)
+│     │  │  │  ├─ FR.json.gz
+│     │  │  │  ├─ DE.json.gz
+│     │  │  │  ├─ US.json.gz
+│     │  │  │  ├─ JP.json.gz
+│     │  │  │  └─ ... all ISO countries ...
+│     │  │  │
+│     │  │  ├─ tiles/               (the real scalability key)
+│     │  │  │  ├─ z5/               (zoom-like level for big tiles)
+│     │  │  │  │  ├─ 05_10/
+│     │  │  │  │  │  ├─ nodes.json.gz       (towns >= 500 pop + stations + terminals)
+│     │  │  │  │  │  ├─ edges_rail.json.gz  (rail infrastructure graph)
+│     │  │  │  │  │  ├─ edges_road.json.gz  (optional for bus later)
+│     │  │  │  │  │  ├─ services_rail.json.gz (GTFS-derived where available)
+│     │  │  │  │  │  ├─ zones.json.gz       (multi-resolution aggregation zones)
+│     │  │  │  │  │  ├─ industry.json.gz    (production/consumption proxies)
+│     │  │  │  │  │  ├─ elevation.json.gz   (optional compressed elevation samples)
+│     │  │  │  │  │  └─ license.txt
+│     │  │  │  │  └─ ...
+│     │  │  │  ├─ z6/ ...
+│     │  │  │  └─ z7/ ...           (smaller tiles; loaded when player zooms/expands)
+│     │  │  │
+│     │  │  └─ overlays/            (global layers, optional)
+│     │  │     ├─ climate_zones.json.gz
+│     │  │     ├─ disaster_risk.json.gz
+│     │  │     ├─ political_regions.json.gz
+│     │  │     └─ disease_baselines.json.gz
+│     │  │
+│     │  └─ 2026Q2/ ...             (next global snapshot)
+│     │
+│     └─ presets/
+│        ├─ tutorial_global.json
+│        ├─ sandbox_world_small.json
+│        └─ challenges/
+│           ├─ weekly_001.json
+│           └─ ...
+│
+├─ tools/
+│  ├─ build_world.mjs               (orchestrates global pipeline)
+│  ├─ tile_world.mjs                (splits into tiles; builds tile index)
+│  ├─ validate_world.mjs            (schema + sanity checks; fail early)
+│  ├─ compress_world.mjs            (gzip all JSON)
+│  │
+│  ├─ ingest/
+│  │  ├─ osm_to_edges_world.mjs     (OSM rail extraction per tile)
+│  │  ├─ gtfs_to_services_world.mjs (multi-source GTFS -> per tile services)
+│  │  ├─ pop_to_nodes_world.mjs     (population >= 500 -> nodes per tile)
+│  │  ├─ industry_world.mjs         (GDP/industry proxies per tile)
+│  │  ├─ elevation_world.mjs        (optional elevation sampling per tile)
+│  │  └─ admin_index_world.mjs      (country/tile/admin lookup tables)
+│  │
+│  └─ datasets_raw/                 (big raw inputs; not committed)
+│     ├─ osm/                       (planet extracts or regional)
+│     ├─ gtfs/                      (feeds by country/region)
+│     ├─ population/
+│     ├─ industry/
+│     └─ elevation/
