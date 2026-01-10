@@ -1,0 +1,59 @@
+output_root: data/raw
+project_label: "worldsim"
+
+downloads:
+  natural_earth:
+    enabled: true
+    items:
+      - name: "admin_0_countries_10m"
+        page_url: "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-admin-0-countries/"
+      - name: "admin_1_states_provinces_10m"
+        page_url: "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/10m-admin-1-states-provinces/"
+
+  geofabrik_osm:
+    enabled: true
+    regions:
+      - id: "europe/spain"
+        url: "https://download.geofabrik.de/europe/spain-latest.osm.pbf"
+
+  worldpop:
+    enabled: true
+    api_base: "https://www.worldpop.org/rest/data"
+    countries_iso3: ["ESP"]
+    year: 2020
+    prefer_products:
+      - "ppp"
+      - "Population Count"
+      - "Unconstrained"
+
+  world_bank_wdi:
+    enabled: true
+    indicators:
+      - "SP.POP.TOTL"
+      - "NY.GDP.MKTP.CD"
+      - "NV.AGR.TOTL.CD"
+      - "NV.IND.TOTL.CD"
+      - "NV.SRV.TOTL.CD"
+    countries: "all"
+    start_year: 1990
+    end_year: 2024
+    format: "json"
+
+  faostat:
+    enabled: true
+    domains: ["QCL"]
+    years: [2020]
+
+  un_comtrade:
+    enabled: true
+    year: 2022
+
+  transitland_gtfs:
+    enabled: false
+    bbox: [-9.8, 35.7, 4.4, 43.9]
+    max_feeds: 50
+
+generators:
+  synthetic_competitors:
+    enabled: true
+    seed: 12345

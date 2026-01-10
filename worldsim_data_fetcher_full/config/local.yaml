@@ -1,0 +1,57 @@
+output_root: ../public/data/raw
+project_label: "worldsim"
+
+downloads:
+  natural_earth:
+    enabled: true
+    convert_geojson: true
+    items:
+      - name: "admin_0_countries_110m"
+        page_url: "https://www.naturalearthdata.com/downloads/110m-cultural-vectors/110m-admin-0-countries/"
+      - name: "admin_1_states_provinces_110m"
+        page_url: "https://www.naturalearthdata.com/downloads/110m-cultural-vectors/110m-admin-1-states-provinces/"
+
+  geofabrik_osm:
+    enabled: false
+    regions: []
+
+  worldpop:
+    enabled: false
+    countries_iso3: []
+    year: 2020
+    prefer_products:
+      - "ppp"
+      - "Population Count"
+      - "Unconstrained"
+
+  world_bank_wdi:
+    enabled: false
+    indicators:
+      - "SP.POP.TOTL"
+      - "NY.GDP.MKTP.CD"
+      - "NV.AGR.TOTL.CD"
+      - "NV.IND.TOTL.CD"
+      - "NV.SRV.TOTL.CD"
+    countries: "all"
+    start_year: 2015
+    end_year: 2024
+    format: "json"
+
+  faostat:
+    enabled: false
+    domains: ["QCL"]
+    years: [2020]
+
+  un_comtrade:
+    enabled: false
+    year: 2022
+
+  transitland_gtfs:
+    enabled: false
+    bbox: [-180, -90, 180, 90]
+    max_feeds: 0
+
+generators:
+  synthetic_competitors:
+    enabled: true
+    seed: 12345

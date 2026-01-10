@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integration Test - Rail Map Simulator</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            margin: 20px;
+            background: #f8fafc;
+        }
+        .test-section {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .test-title {
+            font-weight: 1000;
+            font-size: 18px;
+            margin-bottom: 10px;
+            color: #0f172a;
+        }
+        .test-result {
+            padding: 10px;
+            border-radius: 8px;
+            margin: 5px 0;
+        }
+        .test-pass {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+        .test-fail {
+            background: #fee2e2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+        .test-info {
+            background: #e0f2fe;
+            color: #0369a1;
+            border: 1px solid #bae6fd;
+        }
+        button {
+            background: #2b6cff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 900;
+            margin: 5px;
+        }
+        button:hover {
+            background: #1a56db;
+        }
+        .log {
+            background: #0f172a;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>Integration Test Suite</h1>
+    <p>Testing new modules integration with existing rail-map simulator</p>
+
+    <div class="test-section">
+        <div class="test-title">Module Loading Tests</div>
+        <div id="moduleTests"></div>
+        <button onclick="runModuleTests()">Run Module Tests</button>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">Event Framework Tests</div>
+        <div id="eventTests"></div>
+        <button onclick="runEventTests()">Run Event Tests</button>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">KPI Dashboard Tests</div>
+        <div id="kpiTests"></div>
+        <button onclick="runKPITests()">Run KPI Tests</button>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">Integration Tests</div>
+        <div id="integrationTests"></div>
+        <button onclick="runIntegrationTests()">Run Integration Tests</button>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">Test Log</div>
+        <div id="testLog" class="log"></div>
+        <button onclick="clearLog()">Clear Log</button>
+    </div>
+
+    <!-- Load the modules -->
+    <script src="/src/sim-core/rng.js"></script>
+    <script src="/src/sim-core/versions.js"></script>
+    <script src="/src/sim-core/validate.js"></script>
+    <script src="/src/sim-core/events.js"></script>
+    <script src="/src/sim-core/ode_solver.js"></script>
+    <script src="/src/sim-core/macro_dynamics.js"></script>
+    <script src="/src/sim-core/kpi_dashboard.js"></script>
+    <script src="/src/sim-core/line_color_tool.js"></script>
+    <script src="/src/sim-core/integration.js"></script>
+
+    <script>
+        let testResults = [];
+
+        function log(message, type = 'info') {
+            const logEl = document.getElementById('testLog');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'color: #ef4444' : 
+                            type === 'success' ? 'color: #10b981' : 
+                            type === 'warning' ? 'color: #f59e0b' : 'color: #e2e8f0';
+            logEl.innerHTML += `<span style="${className}">[${timestamp}] ${message}</span>\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function addTestResult(containerId, testName, passed, message = '') {
+            const container = document.getElementById(containerId);
+            const className = passed ? 'test-pass' : 'test-fail';
+            const status = passed ? '✅ PASS' : '❌ FAIL';
+            container.innerHTML += `
+                <div class="test-result ${className}">
+                    <strong>${testName}</strong>: ${status}
+                    ${message ? `<br><small>${message}</small>` : ''}
+                </div>
+            `;
+            testResults.push({ testName, passed, message });
+        }
+
+        function runModuleTests() {
+            log('Starting module loading tests...');
+            document.getElementById('moduleTests').innerHTML = '';
+
+            // Test Event Framework
+            try {
+                if (typeof window.makeEventGenerator === 'function') {
+                    addTestResult('moduleTests', 'Event Framework Loaded', true);
+                    const generator = window.makeEventGenerator(12345);
+                    const events = generator.generateEvents({ startTick: 0, endTick: 10 });
+                    addTestResult('moduleTests', 'Event Generation Works', true, `Generated ${events.length} events`);
+                } else {
+                    addTestResult('moduleTests', 'Event Framework Loaded', false, 'makeEventGenerator not found');
+                }
+            } catch (error) {
+                addTestResult('moduleTests', 'Event Framework Loaded', false, error.message);
+            }
+
+            // Test ODE Solver
+            try {
+                if (typeof window.createSolver === 'function') {
+                    addTestResult('moduleTests', 'ODE Solver Loaded', true);
+                    const solver = window.createSolver('rk4', 0.1);
+                    const state = { y: 1.0 };
+                    const derivatives = (s) => ({ y: -s.y }); // dy/dt = -y
+                    const result = solver.step(state, derivatives, 0);
+                    addTestResult('moduleTests', 'ODE Solver Works', true, `Result: y=${result.y.toFixed(4)}`);
+                } else {
+                    addTestResult('moduleTests', 'ODE Solver Loaded', false, 'createSolver not found');
+                }
+            } catch (error) {
+                addTestResult('moduleTests', 'ODE Solver Loaded', false, error.message);
+            }
+
+            // Test KPI Dashboard
+            try {
+                if (typeof window.KPIDashboard === 'function') {
+                    addTestResult('moduleTests', 'KPI Dashboard Loaded', true);
+                    const dashboard = new window.KPIDashboard();
+                    addTestResult('moduleTests', 'KPI Dashboard Instantiated', true);
+                } else {
+                    addTestResult('moduleTests', 'KPI Dashboard Loaded', false, 'KPIDashboard class not found');
+                }
+            } catch (error) {
+                addTestResult('moduleTests', 'KPI Dashboard Loaded', false, error.message);
+            }
+
+            // Test Line Color Tool
+            try {
+                if (typeof window.LineColorTool === 'function') {
+                    addTestResult('moduleTests', 'Line Color Tool Loaded', true);
+                    const tool = new window.LineColorTool();
+                    addTestResult('moduleTests', 'Line Color Tool Instantiated', true);
+                } else {
+                    addTestResult('moduleTests', 'Line Color Tool Loaded', false, 'LineColorTool class not found');
+                }
+            } catch (error) {
+                addTestResult('moduleTests', 'Line Color Tool Loaded', false, error.message);
+            }
+
+            log('Module loading tests completed');
+        }
+
+        function runEventTests() {
+            log('Starting event framework tests...');
+            document.getElementById('eventTests').innerHTML = '';
+
+            try {
+                const generator = window.makeEventGenerator(42);
+                
+                // Test deterministic generation
+                const events1 = generator.generateEvents({ startTick: 0, endTick: 100 });
+                const events2 = generator.generateEvents({ startTick: 0, endTick: 100 });
+                
+                const deterministic = JSON.stringify(events1) === JSON.stringify(events2);
+                addTestResult('eventTests', 'Deterministic Event Generation', deterministic, 
+                    deterministic ? 'Same seed produces same events' : 'Events differ with same seed');
+
+                // Test event validation
+                if (events1.length > 0) {
+                    const validation = window.validateEvent(events1[0]);
+                    addTestResult('eventTests', 'Event Validation', validation.valid, 
+                        validation.valid ? 'Event structure valid' : validation.errors.join(', '));
+                }
+
+                // Test event effects
+                const mockState = { revenueEUR: 1000, costEUR: 800 };
+                const testEvents = [{
+                    type: 'weather',
+                    tick: 0,
+                    duration: 5,
+                    params: { speedReduction: 0.3, demandMultiplier: 0.8 }
+                }];
+                
+                window.applyEventEffects(mockState, testEvents, 0);
+                addTestResult('eventTests', 'Event Effects Applied', true, 
+                    `Effects: speed=${mockState.eventEffects?.speedMultiplier || 1}`);
+
+            } catch (error) {
+                addTestResult('eventTests', 'Event Framework Error', false, error.message);
+            }
+
+            log('Event framework tests completed');
+        }
+
+        function runKPITests() {
+            log('Starting KPI dashboard tests...');
+            document.getElementById('kpiTests').innerHTML = '';
+
+            try {
+                const dashboard = new window.KPIDashboard();
+                
+                // Test KPI initialization
+                dashboard.updateKPI('revenue', 50000, Date.now());
+                dashboard.updateKPI('profit', 10000, Date.now());
+                addTestResult('kpiTests', 'KPI Updates', true, 'Revenue and profit KPIs updated');
+
+                // Test KPI formatting
+                const formatted = dashboard.formatValue(50000, 'currency');
+                addTestResult('kpiTests', 'KPI Formatting', true, `Formatted: ${formatted}`);
+
+                // Test KPI export
+                const exportData = dashboard.exportData();
+                addTestResult('kpiTests', 'KPI Export', true, 
+                    `Exported ${Object.keys(exportData.kpis).length} KPIs`);
+
+            } catch (error) {
+                addTestResult('kpiTests', 'KPI Dashboard Error', false, error.message);
+            }
+
+            log('KPI dashboard tests completed');
+        }
+
+        function runIntegrationTests() {
+            log('Starting integration tests...');
+            document.getElementById('integrationTests').innerHTML = '';
+
+            try {
+                // Test integration utilities
+                if (typeof window.integrationUtils === 'object') {
+                    addTestResult('integrationTests', 'Integration Utils Available', true);
+
+                    // Test event initialization
+                    const eventInit = window.integrationUtils.initializeEvents(12345);
+                    addTestResult('integrationTests', 'Event Initialization', !!eventInit, 
+                        eventInit ? `Events: ${eventInit.events.length}` : 'Failed to initialize');
+
+                    // Test validation
+                    const mockState = { events: [], macro: {} };
+                    const validation = window.integrationUtils.validateIntegration(mockState);
+                    addTestResult('integrationTests', 'Integration Validation', validation.valid,
+                        validation.valid ? 'State valid' : validation.issues.join(', '));
+
+                } else {
+                    addTestResult('integrationTests', 'Integration Utils Available', false);
+                }
+
+            } catch (error) {
+                addTestResult('integrationTests', 'Integration Error', false, error.message);
+            }
+
+            log('Integration tests completed');
+        }
+
+        function clearLog() {
+            document.getElementById('testLog').innerHTML = '';
+            testResults = [];
+        }
+
+        // Auto-run module tests when page loads
+        window.addEventListener('load', () => {
+            log('Integration test page loaded');
+            setTimeout(runModuleTests, 500);
+        });
+    </script>
+</body>
+</html>

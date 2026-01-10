@@ -1,0 +1,51 @@
+{
+  "meta": {
+    "datasetVersion": "0.0.1",
+    "modelVersion": "0.0.1",
+    "schemaVersion": "0.0.1",
+    "seed": 42,
+    "scenarioId": "golden-min-001",
+    "runId": "0.0.1|0.0.1|0.0.1|42|golden-min-001"
+  },
+  "units": {
+    "cashEUR": "EUR",
+    "revenueEUR": "EUR",
+    "costEUR": "EUR",
+    "profitEUR": "EUR",
+    "paxMoved": "pax",
+    "goodsMoved": "goods_units",
+    "tick": "ticks"
+  },
+  "rows": [
+    {
+      "tTick": 1,
+      "tickLabel": "t0",
+      "cashEUR": 0,
+      "revenueEUR": 0,
+      "costEUR": 0,
+      "profitEUR": 0,
+      "paxMoved": null,
+      "runId": "0.0.1|0.0.1|0.0.1|42|golden-min-001"
+    },
+    {
+      "tTick": 2,
+      "tickLabel": "t1",
+      "cashEUR": 0,
+      "revenueEUR": 0,
+      "costEUR": 0,
+      "profitEUR": 0,
+      "paxMoved": null,
+      "runId": "0.0.1|0.0.1|0.0.1|42|golden-min-001"
+    },
+    {
+      "tTick": 3,
+      "tickLabel": "t2",
+      "cashEUR": 0,
+      "revenueEUR": 0,
+      "costEUR": 0,
+      "profitEUR": 0,
+      "paxMoved": null,
+      "runId": "0.0.1|0.0.1|0.0.1|42|golden-min-001"
+    }
+  ]
+}

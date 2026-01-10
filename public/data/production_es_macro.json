@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0",
+  "datasetVersion": "Eurostat 2026-01-05",
+  "year": "2022",
+  "source": "Eurostat nama_10_a10 (B1G, CP_MEUR, ES) + nama_10_co3_p3 (CP_MEUR, ES)",
+  "units": "per year",
+  "production_eur": {
+    "food": 32603,
+    "materials": 218941,
+    "manufactured": 151730,
+    "energy": 0,
+    "construction": 73065,
+    "services": 930106
+  },
+  "consumption_eur": {
+    "food": 18396.55358012578,
+    "materials": 123539.54658731767,
+    "manufactured": 85615.09906181898,
+    "energy": 0,
+    "construction": 41227.622836300034,
+    "services": 524821.1779344375
+  },
+  "notes": {
+    "production_mapping": {
+      "food": "nace_r2 A",
+      "materials": "nace_r2 B-E (energy included in this aggregate)",
+      "manufactured": "nace_r2 C",
+      "energy": "not separated in A10; included in materials",
+      "construction": "nace_r2 F",
+      "services": "nace_r2 G-I, J, K, L, M_N, O-Q, R-U"
+    },
+    "needs_allocation": "Household consumption total (P3_S14) allocated proportional to production shares."
+  }
+}

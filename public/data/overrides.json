@@ -1,0 +1,5 @@
+{
+  "dataRoot": "./data/raw/2026-01-06-world",
+  "worldBorderUrl": "natural_earth/admin_0_countries_110m.geojson",
+  "note": "World-lite fetcher outputs (Natural Earth 110m + WDI). Add per-country overrides when app-ready data exists."
+}

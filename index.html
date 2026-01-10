@@ -1,0 +1,859 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Railway Network Simulator (Cities + Clusters)</title>
+
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow: hidden; }
+    #map { height: 100%; width: 100%; }
+
+.node-hover-tip{
+  background: rgba(255,255,255,0.95);
+  border: 1px solid rgba(15,23,42,0.18);
+  border-radius: 12px;
+  padding: 8px 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+}
+
+
+    .panel{
+      position:absolute; top:16px; right:16px; z-index:1000;
+      background:rgba(255,255,255,0.96); backdrop-filter: blur(16px);
+      padding:14px; border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,0.22);
+      width:420px; max-height:86vh; overflow:auto; border:1px solid rgba(0,0,0,0.06);
+    }
+    .panel-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .panel-header-actions{
+      display:flex;
+      gap:6px;
+      align-items:center;
+    }
+    .panel-header .sub{
+      margin:6px 0 0;
+    }
+    .window-controls{
+      display:flex;
+      gap:4px;
+    }
+    .window-control{
+      width:30px;
+      height:30px;
+      border-radius:6px;
+      border:1px solid #e2e8f0;
+      background:#f8fafc;
+      color:#0f172a;
+      font-size:16px;
+      font-weight:900;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+    }
+    .window-control:hover{
+      border-color:#2b6cff;
+      background:#e0f2fe;
+    }
+    .panel-minimized{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .panel-minimized-row{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+      font-size:12px;
+      color:#64748b;
+      margin-top:6px;
+    }
+    .panel-minimized-row span{
+      font-weight:900;
+    }
+    .panel-minimized-stats{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:6px;
+      font-size:12px;
+      margin-top:8px;
+    }
+    .panel-header{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .panel-header-actions{
+      display:flex;
+      gap:6px;
+      align-items:center;
+    }
+    .panel-header .sub{
+      margin:6px 0 0;
+    }
+    .panel-minimized{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .panel-minimized-row{
+      display:flex;
+      gap:10px;
+      align-items:center;
+      flex-wrap:wrap;
+      font-size:12px;
+      color:#64748b;
+      margin-top:6px;
+    }
+    .panel-minimized-row span{
+      font-weight:900;
+    }
+    .panel-minimized-stats{
+      display:grid;
+      grid-template-columns:repeat(2,minmax(0,1fr));
+      gap:6px;
+      font-size:12px;
+      margin-top:8px;
+    }
+    .error-banner{
+      position:fixed; top:12px; left:50%; transform:translateX(-50%);
+      z-index:2000; width:min(920px, calc(100vw - 24px));
+      background:linear-gradient(135deg, #fee2e2, #fecaca);
+      border:1px solid #ef4444; color:#7f1d1d;
+      border-radius:14px; box-shadow:0 10px 30px rgba(239,68,68,0.28);
+      padding:12px 14px;
+    }
+    .error-banner.hidden{ display:none; }
+    .error-banner-title{ font-weight:1000; font-size:14px; }
+    .error-banner-msg{ margin-top:4px; font-weight:900; }
+    .error-banner-meta{ margin-top:4px; font-size:11px; font-weight:900; color:#991b1b; }
+    .error-banner-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+    .debug-drawer{
+      margin-top:12px; padding:10px;
+      border:1px dashed #cbd5f5; border-radius:12px;
+      background:#f8fafc;
+    }
+    .debug-drawer summary{
+      font-weight:900; color:#0f172a; cursor:pointer; user-select:none;
+      list-style:none;
+    }
+    .debug-drawer summary::-webkit-details-marker{ display:none; }
+    .debug-block{ margin-top:10px; }
+    .debug-title{ font-weight:1000; color:#0f172a; margin-bottom:4px; }
+    .debug-meta{ font-size:11px; font-weight:900; color:#64748b; margin-bottom:6px; }
+    .debug-msg{ font-size:12px; font-weight:900; color:#0f172a; }
+    .debug-pre{
+      margin-top:8px; padding:8px; border-radius:8px;
+      background:#0f172a; color:#e2e8f0;
+      font-size:11px; white-space:pre-wrap; max-height:160px; overflow:auto;
+    }
+    .debug-grid{ display:grid; grid-template-columns:1fr; gap:4px; margin-top:6px; }
+    @media (min-width: 900px){
+      .debug-grid{ grid-template-columns:1fr 1fr; }
+    }
+    .tabs{ display:flex; gap:6px; background:#f1f5f9; padding:6px; border-radius:12px; margin-bottom:12px; }
+    .tab{ flex:1; text-align:center; padding:10px 8px; border-radius:10px; font-weight:900; cursor:pointer; user-select:none; color:#64748b; }
+    .tab.active{ background:white; color:#2b6cff; box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+
+    .section{ padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid #e2e8f0; }
+    .section:last-child{ border-bottom:none; margin-bottom:0; padding-bottom:0; }
+    .title{ font-weight:1000; color:#0f172a; margin:0 0 4px 0; }
+    .sub{ color:#64748b; font-weight:800; font-size:12px; margin:0 0 10px 0; }
+/* Busy station ring pulse */
+.station-busy {
+  animation: stationPulse 2.6s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes stationPulse {
+  0% {
+    stroke-opacity: calc(0.15 * var(--pulse-strength, 1));
+    stroke-width: 1.5;
+  }
+  50% {
+    stroke-opacity: calc(0.9 * var(--pulse-strength, 1));
+    stroke-width: 4;
+  }
+  100% {
+    stroke-opacity: calc(0.15 * var(--pulse-strength, 1));
+    stroke-width: 1.5;
+  }
+}
+
+/* === Active line editor layout fix === */
+.lineInspectorGrid{
+  display:grid;
+  grid-template-columns: 120px 1fr 1fr;
+  gap:10px;
+  align-items:end;
+  margin-top:10px;
+}
+
+.liField .liLabel{
+  font-weight:900;
+  color:#334155;
+  font-size:12px;
+  margin-bottom:6px;
+}
+
+.lineInspectorGrid .field{
+  width:100%;
+  height:38px;
+  box-sizing:border-box;
+}
+
+
+
+    .btn{
+      width:100%; padding:12px; border:0; border-radius:10px; cursor:pointer; font-weight:1000;
+      background:linear-gradient(135deg,#2b6cff,#1a56db); color:white; user-select:none;
+      margin-top:8px;
+    }
+    .btn.secondary{ background:#f1f5f9; color:#0f172a; }
+    .btn.success{ background:linear-gradient(135deg,#10b981,#059669); }
+    .btn.warning{ background:linear-gradient(135deg,#f59e0b,#d97706); }
+    .btn.danger{ background:linear-gradient(135deg,#ef4444,#b91c1c); }
+    .row{ display:flex; gap:8px; }
+    .row .btn{ margin-top:0; }
+
+    .field{ width:100%; padding:10px 12px; border:2px solid #e2e8f0; border-radius:10px; font-weight:900; }
+    .field:focus{ outline:none; border-color:#2b6cff; box-shadow:0 0 0 3px rgba(43,108,255,0.08); }
+
+    .hint{
+      background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px;
+      padding:10px 12px; color:#334155; font-weight:850; font-size:12px;
+    }
+
+    .toast{
+      position:fixed; right:18px; bottom:18px; z-index:99999;
+      background:#0f172a; color:white; padding:12px 14px; border-radius:12px;
+      box-shadow:0 6px 20px rgba(0,0,0,0.25); font-weight:950; display:none;
+    }
+
+    /* Loading overlay */
+    body.loading #map,
+    body.loading .panel,
+    body.loading #modeBar,
+    body.loading #clusterBar,
+    body.loading #lineLegend {
+      visibility: hidden;
+    }
+    #loadingOverlay{
+      position:fixed;
+      inset:0;
+      z-index:5000;
+      background:#fff;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      text-align:center;
+      font-family: "Georgia", "Times New Roman", serif;
+      color:#0f172a;
+    }
+    #loadingOverlay .wrap{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:18px;
+    }
+    .loader-track{
+      position:relative;
+      width:320px;
+      height:10px;
+      background:linear-gradient(90deg,#e2e8f0,#cbd5f5,#e2e8f0);
+      border-radius:999px;
+      overflow:hidden;
+    }
+    .loader-dot{
+      position:absolute;
+      top:50%;
+      width:10px;
+      height:10px;
+      border-radius:999px;
+      background:#0f172a;
+      transform:translate(-50%,-50%);
+      animation: loaderMove 2.2s linear infinite;
+    }
+    .loader-dot.dot2{ animation-delay:0.4s; opacity:0.75; }
+    .loader-dot.dot3{ animation-delay:0.8s; opacity:0.55; }
+    @keyframes loaderMove{
+      0%{ left:-5%; }
+      100%{ left:105%; }
+    }
+    #loadingTitle{
+      font-weight:900;
+      font-size:20px;
+      letter-spacing:0.3px;
+    }
+    #loadingStatus{
+      font-weight:700;
+      font-size:13px;
+      color:#475569;
+      max-width:420px;
+    }
+
+    .k{ color:#64748b; font-weight:900; }
+    .v{ color:#0f172a; font-weight:1000; }
+
+    .list{ border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; background:white; max-height:240px; overflow:auto; }
+    .item{ padding:10px 12px; border-bottom:1px solid #f1f5f9; cursor:pointer; user-select:none; }
+    .item:last-child{ border-bottom:none; }
+    .item:hover{ background:#f8fafc; }
+    .item.active{ background:#e0f2fe; border-left:4px solid #2b6cff; }
+
+    .badge{
+      display:inline-block; padding:2px 8px; border-radius:999px; font-weight:1000; font-size:11px;
+      background:#e2e8f0; color:#0f172a; margin-left:8px;
+    }
+
+    /* Bottom-left cluster exit */
+    #clusterBar{
+      position:absolute; left:16px; bottom:16px; z-index:1200;
+      background:rgba(255,255,255,0.96); backdrop-filter: blur(16px);
+      padding:10px 12px; border-radius:14px;
+      box-shadow:0 8px 24px rgba(0,0,0,0.22);
+      border:1px solid rgba(0,0,0,0.06);
+      display:none;
+      width:320px;
+    }
+    #clusterBar .rowTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    #clusterBar .name{ font-weight:1000; color:#0f172a; font-size:13px; }
+    #clusterBar .btnTiny{
+      border:0; border-radius:10px; padding:8px 10px; cursor:pointer; font-weight:1000;
+      background:#f1f5f9; color:#0f172a;
+    }
+
+    /* Cluster dots (same size always) */
+    .cluster-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.9);
+      box-shadow: 0 8px 18px rgba(0,0,0,0.18);
+      border: 2px solid rgba(255,255,255,0.85);
+    }
+    .cluster-dot.active {
+      outline: 4px solid rgba(16,185,129,0.35);
+      border-color: rgba(255,255,255,1);
+    }
+
+    /* MetroDreamin-inspired map theme */
+    body.metro-theme #map,
+    body.metro-theme .leaflet-container {
+      background: #0b0b0b;
+    }
+    body.metro-theme .cluster-dot {
+      background: #f8fafc;
+      border-color: #f8fafc;
+      box-shadow: 0 8px 18px rgba(0,0,0,0.55);
+    }
+    body.metro-theme .cluster-dot.active {
+      outline: 4px solid rgba(255,255,255,0.25);
+    }
+    body.metro-theme .lane-label{
+      background: rgba(255,255,255,0.08);
+      color: #f8fafc;
+      border-color: rgba(255,255,255,0.2);
+    }
+    body.metro-theme .track-lane-label{
+      color: #f8fafc;
+      text-shadow:
+        0px 2px 8px rgba(0,0,0,0.8);
+    }
+
+    /* Track lane label at midpoint */
+    .lane-label{
+      background: rgba(0,0,0,0.85);
+      color: white;
+      border-radius: 10px;
+      padding: 2px 6px;
+      font-weight: 1000;
+      font-size: 12px;
+      line-height: 1;
+      border: 1px solid rgba(255,255,255,0.25);
+      box-shadow: 0 8px 18px rgba(0,0,0,0.20);
+      pointer-events: none;
+    }
+
+/* === Track lane count label === */
+.track-lane-label{
+  color:#fff;
+  font-weight:1000;
+  font-size:14px;
+  line-height:1;
+  white-space:nowrap;
+  pointer-events:none;
+
+  /* “halo” outline so white text is readable on any map */
+  text-shadow:
+    -1px -1px 0 rgba(0,0,0,0.85),
+     1px -1px 0 rgba(0,0,0,0.85),
+    -1px  1px 0 rgba(0,0,0,0.85),
+     1px  1px 0 rgba(0,0,0,0.85),
+     0px  2px 6px rgba(0,0,0,0.70);
+}
+
+/* Mode bar (top-left) */
+#modeBar{
+  position:absolute;
+  left:16px;
+  top:16px;
+  z-index:1300;
+  background:rgba(15,23,42,0.88);
+  color:#fff;
+  padding:10px 12px;
+  border-radius:14px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.22);
+  border:1px solid rgba(255,255,255,0.14);
+  min-width:240px;
+}
+#modeBar .row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+}
+#modeBar .mode{
+  font-weight:1000;
+  letter-spacing:0.3px;
+}
+#modeBar .pill{
+  display:inline-block;
+  padding:2px 8px;
+  border-radius:999px;
+  font-size:11px;
+  font-weight:1000;
+  background:rgba(255,255,255,0.14);
+}
+#modeBar .detail{
+  margin-top:2px;
+  font-size:12px;
+  font-weight:900;
+  color:rgba(255,255,255,0.78);
+}
+#modeBar .keys{
+  margin-top:8px;
+  font-size:11px;
+  font-weight:900;
+  color:rgba(255,255,255,0.62);
+}
+
+/* Line legend (top-right) */
+#lineLegend{
+  position:absolute;
+  left:16px;
+  bottom:16px;
+  z-index:1300;
+  background:rgba(255,255,255,0.92);
+  color:#0f172a;
+  padding:10px 12px;
+  border-radius:14px;
+  box-shadow:0 8px 24px rgba(0,0,0,0.18);
+  border:1px solid rgba(15,23,42,0.12);
+  min-width:240px;
+  max-width:320px;
+}
+#lineLegend .title{
+  font-weight:1000;
+  margin-bottom:8px;
+}
+#lineLegend .item{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:6px 8px;
+  border-radius:10px;
+  cursor:pointer;
+}
+#lineLegend .item:hover{
+  background:rgba(15,23,42,0.06);
+}
+#lineLegend .left{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+}
+#lineLegend .swatch{
+  width:12px;
+  height:12px;
+  border-radius:4px;
+  border:1px solid rgba(0,0,0,0.22);
+  flex:0 0 12px;
+}
+#lineLegend .name{
+  font-weight:1000;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+#lineLegend .meta{
+  font-size:11px;
+  font-weight:900;
+  color:#64748b;
+  white-space:nowrap;
+}
+#lineLegend .active{
+  outline:2px solid rgba(43,108,255,0.55);
+}
+
+/* KPI Dashboard styles */
+#kpiDashboard .kpi-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:10px;
+  margin-top:12px;
+}
+#kpiDashboard .kpi-item{
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
+  border-radius:10px;
+  padding:12px;
+  text-align:center;
+}
+#kpiDashboard .kpi-value{
+  font-size:20px;
+  font-weight:1000;
+  color:#0f172a;
+  margin-bottom:4px;
+}
+#kpiDashboard .kpi-label{
+  font-size:11px;
+  font-weight:900;
+  color:#64748b;
+  text-transform:uppercase;
+  letter-spacing:0.5px;
+}
+#kpiDashboard .kpi-trend{
+  font-size:10px;
+  font-weight:900;
+  margin-top:4px;
+}
+#kpiDashboard .kpi-trend.up{
+  color:#10b981;
+}
+#kpiDashboard .kpi-trend.down{
+  color:#ef4444;
+}
+#kpiDashboard .kpi-sparkline{
+  height:30px;
+  margin-top:8px;
+  background:#f1f5f9;
+  border-radius:6px;
+  position:relative;
+  overflow:hidden;
+}
+
+/* Line Color Picker styles */
+#lineColorPicker .color-grid{
+  display:grid;
+  grid-template-columns:repeat(8, 1fr);
+  gap:8px;
+  margin:12px 0;
+}
+#lineColorPicker .color-swatch{
+  width:30px;
+  height:30px;
+  border-radius:6px;
+  border:2px solid transparent;
+  cursor:pointer;
+  transition:all 0.2s;
+}
+#lineColorPicker .color-swatch:hover{
+  transform:scale(1.1);
+  border-color:#2b6cff;
+}
+#lineColorPicker .color-swatch.selected{
+  border-color:#2b6cff;
+  box-shadow:0 0 0 3px rgba(43,108,255,0.2);
+}
+#lineColorPicker .custom-color{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  margin-top:12px;
+}
+#lineColorPicker .custom-color input[type="color"]{
+  width:50px;
+  height:40px;
+  border:2px solid #e2e8f0;
+  border-radius:8px;
+  cursor:pointer;
+}
+#lineColorPicker .custom-color input[type="text"]{
+  flex:1;
+  padding:8px 12px;
+  border:2px solid #e2e8f0;
+  border-radius:8px;
+  font-weight:900;
+}
+#lineColorPicker .line-preview{
+  height:40px;
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
+  border-radius:8px;
+  margin-top:12px;
+  position:relative;
+  overflow:hidden;
+}
+#lineColorPicker .preview-line{
+  position:absolute;
+  top:50%;
+  left:10px;
+  right:10px;
+  height:4px;
+  border-radius:2px;
+  transform:translateY(-50%);
+}
+
+/* Event Timeline styles */
+#eventTimeline .event-list{
+  max-height:300px;
+  overflow-y:auto;
+  margin-top:12px;
+}
+#eventTimeline .event-item{
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
+  border-radius:10px;
+  padding:12px;
+  margin-bottom:8px;
+}
+#eventTimeline .event-active{
+  border-color:#f59e0b;
+  background:#fffbeb;
+}
+#eventTimeline .event-upcoming{
+  border-color:#3b82f6;
+  background:#eff6ff;
+}
+#eventTimeline .event-completed{
+  border-color:#e5e7eb;
+  background:#f9fafb;
+}
+#eventTimeline .event-header{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-bottom:8px;
+}
+#eventTimeline .event-icon{
+  font-size:16px;
+}
+#eventTimeline .event-type{
+  font-weight:1000;
+  color:#0f172a;
+  background:#e2e8f0;
+  padding:2px 6px;
+  border-radius:4px;
+  font-size:10px;
+}
+#eventTimeline .event-tick{
+  font-size:11px;
+  color:#64748b;
+  margin-left:auto;
+}
+#eventTimeline .event-details{
+  display:flex;
+  gap:8px;
+  margin-bottom:8px;
+  flex-wrap:wrap;
+}
+#eventTimeline .event-severity{
+  padding:2px 6px;
+  border-radius:4px;
+  color:white;
+  font-size:10px;
+  font-weight:900;
+}
+#eventTimeline .event-region{
+  font-size:11px;
+  color:#64748b;
+}
+#eventTimeline .event-progress{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex:1;
+  min-width:0;
+}
+#eventTimeline .progress-bar{
+  flex:1;
+  height:4px;
+  background:#e5e7eb;
+  border-radius:2px;
+  overflow:hidden;
+}
+#eventTimeline .progress-fill{
+  height:100%;
+  background:#f59e0b;
+  transition:width 0.3s ease;
+}
+#eventTimeline .progress-text{
+  font-size:10px;
+  color:#64748b;
+  font-weight:900;
+}
+#eventTimeline .event-params{
+  margin-top:8px;
+  padding-top:8px;
+  border-top:1px solid #e5e7eb;
+}
+#eventTimeline .param-item{
+  display:flex;
+  gap:8px;
+  font-size:11px;
+  margin-bottom:2px;
+}
+#eventTimeline .param-key{
+  color:#64748b;
+  font-weight:900;
+}
+#eventTimeline .param-value{
+  color:#0f172a;
+}
+
+
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+  <div id="errorBanner" class="error-banner hidden">
+    <div class="error-banner-title">Something went wrong</div>
+    <div id="errorBannerMsg" class="error-banner-msg"></div>
+    <div id="errorBannerMeta" class="error-banner-meta"></div>
+    <div class="error-banner-actions">
+      <button class="btn secondary" style="width:auto;padding:8px 10px;margin-top:0;" onclick="ui_openDebugDrawer()">Open debug</button>
+      <button class="btn secondary" style="width:auto;padding:8px 10px;margin-top:0;" onclick="ui_clearLastError()">Dismiss</button>
+    </div>
+  </div>
+  <div id="controlPanel" class="panel"></div>
+  <div id="clusterBar"></div>
+  <div id="modeBar"></div>
+  <div id="lineLegend"></div>
+  <div id="kpiDashboard" class="panel" style="display: none; top: 80px; width: 380px;">
+    <div class="panel-header">
+      <div>
+        <div class="title">KPI Dashboard</div>
+        <div class="sub">Real-time performance metrics</div>
+      </div>
+      <div class="panel-header-actions">
+        <div class="window-control" onclick="ui_toggleKPIDashboard()">×</div>
+      </div>
+    </div>
+    <div id="kpiContent">
+      <!-- KPI content will be populated here -->
+    </div>
+  </div>
+  <div id="lineColorPicker" class="panel" style="display: none; top: 200px; width: 320px;">
+    <div class="panel-header">
+      <div>
+        <div class="title">Line Color</div>
+        <div class="sub">Customize line appearance</div>
+      </div>
+      <div class="panel-header-actions">
+        <div class="window-control" onclick="ui_closeLineColorPicker()">×</div>
+      </div>
+    </div>
+    <div id="lineColorContent">
+      <!-- Line color picker content -->
+    </div>
+  </div>
+  <div id="eventTimeline" class="panel" style="display: none; top: 320px; width: 420px;">
+    <div class="panel-header">
+      <div>
+        <div class="title">Event Timeline</div>
+        <div class="sub">Simulation events and impacts</div>
+      </div>
+      <div class="panel-header-actions">
+        <div class="window-control" onclick="eventTimeline.hide()">×</div>
+      </div>
+    </div>
+    <div id="eventTimelineContent">
+      <!-- Event timeline content -->
+    </div>
+  </div>
+  <div id="toast" class="toast"></div>
+  <div id="loadingOverlay">
+    <div class="wrap">
+      <div id="loadingTitle">Loading the rail network</div>
+      <div class="loader-track">
+        <div class="loader-dot dot1"></div>
+        <div class="loader-dot dot2"></div>
+        <div class="loader-dot dot3"></div>
+      </div>
+      <div id="loadingStatus">Preparing simulation...</div>
+    </div>
+  </div>
+
+<script type="module" src="/economy.js"></script>
+  <script type="module" src="/app/shim_economy.js"></script>
+<script type="module" src="/dynamics.js"></script>
+  <script type="module" src="/app/shim_dynamics.js"></script>
+  <script type="module" src="/app/shim_simcore.js"></script>
+
+<!--
+  NOTE:
+  - economy.js and dynamics.js are loaded as classic scripts (not ES modules).
+  - Keep these files next to index.html (same folder).
+  - Serve via a local web server (Vite or python -m http.server).
+-->
+
+
+
+  <!-- Split app scripts (classic, shared global scope) -->
+  <script src="/app/core.js"></script>
+  <script src="/app/offline_cache.js"></script>
+  <script src="/app/service_clock.js"></script>
+  <script src="/app/map_layers.js"></script>
+  <script src="/app/network.js"></script>
+  <script src="/app/osm_import.js"></script>
+  <script src="/app/production.js"></script>
+  <script src="/app/ui.js"></script>
+  <script src="/src/sim-core/rng.js"></script>
+  <script src="/src/sim-core/versions.js"></script>
+  <script src="/src/sim-core/validate.js"></script>
+  <script src="/src/sim-core/index.js"></script>
+  <script src="/src/sim-core/events.js"></script>
+  <script src="/src/sim-core/ode_solver_classic.js"></script>
+  <script src="/src/sim-core/macro_dynamics_classic.js"></script>
+  <script src="/src/sim-core/tile_system_classic.js"></script>
+  <script src="/src/sim-core/multi_resolution_classic.js"></script>
+  <script src="/src/sim-core/kpi_dashboard_classic.js"></script>
+  <script src="/src/sim-core/line_color_tool_classic.js"></script>
+  <script src="/src/sim-core/event_timeline_classic.js"></script>
+  <script src="/src/sim-core/integration_classic.js"></script>
+  <script src="/debug_integration.js"></script>
+  <script src="/app/sim.js"></script>
+  <script src="/app/init.js"></script>
+
+</body>
+</html>

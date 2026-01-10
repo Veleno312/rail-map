@@ -1,0 +1,14 @@
+{
+  "seed": 42,
+  "scenarioId": "golden-min-001",
+  "state": {
+    "schemaVersion": "0.0.1",
+    "cashEUR": 0,
+    "revenueEUR": 0,
+    "costEUR": 0,
+    "profitEUR": 0,
+    "nodes": [],
+    "tracks": [],
+    "lines": []
+  }
+}

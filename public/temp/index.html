@@ -1,0 +1,1273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Railway Network Simulator (Cities + Clusters)</title>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <style>
+    html, body { height: 100%; margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow: hidden; }
+    #map { height: 100%; width: 100%; }
+
+    .panel{
+      position:absolute; top:16px; right:16px; z-index:1000;
+      background:rgba(255,255,255,0.96); backdrop-filter: blur(16px);
+      padding:14px; border-radius:14px; box-shadow:0 8px 24px rgba(0,0,0,0.22);
+      width:420px; max-height:86vh; overflow:auto; border:1px solid rgba(0,0,0,0.06);
+    }
+    .tabs{ display:flex; gap:6px; background:#f1f5f9; padding:6px; border-radius:12px; margin-bottom:12px; }
+    .tab{ flex:1; text-align:center; padding:10px 8px; border-radius:10px; font-weight:900; cursor:pointer; user-select:none; color:#64748b; }
+    .tab.active{ background:white; color:#2b6cff; box-shadow:0 2px 8px rgba(0,0,0,0.08); }
+
+    .section{ padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid #e2e8f0; }
+    .section:last-child{ border-bottom:none; margin-bottom:0; padding-bottom:0; }
+    .title{ font-weight:1000; color:#0f172a; margin:0 0 4px 0; }
+    .sub{ color:#64748b; font-weight:800; font-size:12px; margin:0 0 10px 0; }
+
+    .btn{
+      width:100%; padding:12px; border:0; border-radius:10px; cursor:pointer; font-weight:1000;
+      background:linear-gradient(135deg,#2b6cff,#1a56db); color:white; user-select:none;
+      margin-top:8px;
+    }
+    .btn.secondary{ background:#f1f5f9; color:#0f172a; }
+    .btn.success{ background:linear-gradient(135deg,#10b981,#059669); }
+    .btn.warning{ background:linear-gradient(135deg,#f59e0b,#d97706); }
+    .btn.danger{ background:linear-gradient(135deg,#ef4444,#b91c1c); }
+    .row{ display:flex; gap:8px; }
+    .row .btn{ margin-top:0; }
+
+    .field{ width:100%; padding:10px 12px; border:2px solid #e2e8f0; border-radius:10px; font-weight:900; }
+    .field:focus{ outline:none; border-color:#2b6cff; box-shadow:0 0 0 3px rgba(43,108,255,0.08); }
+
+    .hint{
+      background:#f8fafc; border:1px solid #e2e8f0; border-radius:10px;
+      padding:10px 12px; color:#334155; font-weight:850; font-size:12px;
+    }
+
+    .toast{
+      position:fixed; right:18px; bottom:18px; z-index:99999;
+      background:#0f172a; color:white; padding:12px 14px; border-radius:12px;
+      box-shadow:0 6px 20px rgba(0,0,0,0.25); font-weight:950; display:none;
+    }
+
+    .k{ color:#64748b; font-weight:900; }
+    .v{ color:#0f172a; font-weight:1000; }
+
+    .list{ border:1px solid #e2e8f0; border-radius:12px; overflow:hidden; background:white; max-height:240px; overflow:auto; }
+    .item{ padding:10px 12px; border-bottom:1px solid #f1f5f9; cursor:pointer; user-select:none; }
+    .item:last-child{ border-bottom:none; }
+    .item:hover{ background:#f8fafc; }
+    .item.active{ background:#e0f2fe; border-left:4px solid #2b6cff; }
+
+    .badge{
+      display:inline-block; padding:2px 8px; border-radius:999px; font-weight:1000; font-size:11px;
+      background:#e2e8f0; color:#0f172a; margin-left:8px;
+    }
+
+    #clusterBar{
+      position:absolute; left:16px; bottom:16px; z-index:1200;
+      background:rgba(255,255,255,0.96); backdrop-filter: blur(16px);
+      padding:10px 12px; border-radius:14px;
+      box-shadow:0 8px 24px rgba(0,0,0,0.22);
+      border:1px solid rgba(0,0,0,0.06);
+      display:none;
+      width:320px;
+    }
+    #clusterBar .rowTop{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    #clusterBar .name{ font-weight:1000; color:#0f172a; font-size:13px; }
+    #clusterBar .btnTiny{
+      border:0; border-radius:10px; padding:8px 10px; cursor:pointer; font-weight:1000;
+      background:#f1f5f9; color:#0f172a;
+    }
+
+    .cluster-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.96);
+      border: 2px solid rgba(43,108,255,0.35);
+      box-shadow: 0 10px 22px rgba(0,0,0,0.16);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      user-select: none;
+      transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+    }
+    .cluster-btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(43,108,255,0.65);
+      box-shadow: 0 12px 26px rgba(0,0,0,0.20);
+    }
+    .cluster-btn:active { transform: translateY(0px) scale(0.98); }
+
+    .cluster-btn .name {
+      font-weight: 1000;
+      color: #0f172a;
+      font-size: 11px;
+      line-height: 1.05;
+      text-align: center;
+      padding: 0 6px;
+      max-width: 44px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cluster-btn .sub {
+      margin-top: 2px;
+      font-size: 9px;
+      font-weight: 1100;
+      color: #64748b;
+      text-align:center;
+    }
+    .cluster-btn.active {
+      border-color: rgba(16,185,129,0.85);
+      box-shadow: 0 12px 26px rgba(16,185,129,0.22);
+    }
+/* === Cluster dots === */
+.cluster-dot {
+  filter: drop-shadow(0 6px 12px rgba(0,0,0,0.25));
+}
+
+/* === Track lane label === */
+.lane-label {
+  color: white;
+  font-weight: 1100;
+  font-size: 12px;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.75);
+  pointer-events: none;
+  user-select: none;
+}
+
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+  <div id="controlPanel" class="panel"></div>
+  <div id="clusterBar"></div>
+  <div id="toast" class="toast"></div>
+
+<script type="module">
+  import { computeEconomy } from "./economy.js";
+
+  const CONFIG = {
+    CLUSTER_RADIUS_KM: 30,
+    CLUSTER_VIEW_MAX_ZOOM: 7,
+    SPAIN_VIEW: { center: [40.0, -3.7], zoom: 6 },
+
+    TRACK_COST_PER_KM: 5_000_000,
+    TRACK_MAINTENANCE_PER_KM: 250_000,
+
+    STARTING_BUDGET: 1_000_000_000,
+    ANNUAL_BUDGET: 100_000_000,
+
+    // smart routing
+    ROUTE_K_NEAREST: 7,
+    CROSSING_PENALTY: 1.9,
+    LONG_EDGE_PENALTY: 1.25,
+  };
+
+  function fmtNum(x){
+    if (x === null || x === undefined || Number.isNaN(Number(x))) return "—";
+    return Number(x).toLocaleString();
+  }
+  function formatCurrency(amount){
+    if (amount === null || amount === undefined || Number.isNaN(Number(amount))) return "—";
+    const a = Number(amount);
+    if (a >= 1e12) return '€' + (a/1e12).toFixed(2) + 'T';
+    if (a >= 1e9)  return '€' + (a/1e9).toFixed(2) + 'B';
+    if (a >= 1e6)  return '€' + (a/1e6).toFixed(2) + 'M';
+    if (a >= 1e3)  return '€' + (a/1e3).toFixed(0) + 'K';
+    return '€' + a.toFixed(0);
+  }
+  function showToast(msg, type="info"){
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.style.display = "block";
+    t.style.background =
+      type==="error" ? "#ef4444" :
+      type==="success" ? "#10b981" :
+      type==="warning" ? "#f59e0b" : "#0f172a";
+    setTimeout(()=> t.style.display="none", 2200);
+  }
+  async function loadJSON(url){
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to load ${url} (${res.status})`);
+    return await res.json();
+  }
+
+  function hash01(str){
+    let h = 2166136261;
+    const s = String(str ?? "");
+    for (let i=0;i<s.length;i++){
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return ((h >>> 0) % 1000000) / 1000000;
+  }
+
+  let map;
+  const layers = {
+    clusters: L.layerGroup(),
+    cities: L.layerGroup(),
+    tracks: L.layerGroup(),
+    lines: L.layerGroup(),
+  };
+
+  const state = {
+    nodes: new Map(),
+    cities: [],
+    clusters: new Map(),
+
+    tracks: new Map(),
+    lines: new Map(),
+
+    year: 2024,
+    budget: CONFIG.STARTING_BUDGET,
+    annualBudget: CONFIG.ANNUAL_BUDGET,
+    revenue: 0,
+    costs: 0,
+    profit: 0,
+
+    activeTab: "network",
+    activeLine: null,
+
+    trackBuildMode: false,
+    pendingTrackNode: null,
+    pendingTrackLanes: 1,
+
+    lineBuildMode: true,
+    activeClusterId: null,
+    selectedNode: null,
+
+    routingNeighbors: new Map(), // nodeId -> [{to,w}]
+  };
+
+  function initMap(){
+    map = L.map("map").setView(CONFIG.SPAIN_VIEW.center, CONFIG.SPAIN_VIEW.zoom);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "© OpenStreetMap contributors"
+    }).addTo(map);
+
+    layers.clusters.addTo(map);
+    layers.cities.addTo(map);
+    layers.tracks.addTo(map);
+    layers.lines.addTo(map);
+
+    map.on("zoomend moveend", () => {
+      syncMarkerVisibility();
+      if (state.activeClusterId && map.getZoom() <= CONFIG.CLUSTER_VIEW_MAX_ZOOM) leaveCluster(true);
+    });
+  }
+
+  function distM(a,b){ return map.distance([a.lat, a.lon], [b.lat, b.lon]); }
+
+  function estimateCityProductionEUR(city){
+    const pop = Number(city.population || 0);
+    const t = hash01(String(city.id || city.name || "x"));
+    const perPerson = 900 + (2200 - 900) * t;
+    return Math.round(pop * perPerson);
+  }
+
+  function prodShortEUR(prod){
+    const p = Number(prod || 0);
+    if (p >= 1e12) return (p/1e12).toFixed(1) + "T";
+    if (p >= 1e9)  return (p/1e9).toFixed(1) + "B";
+    if (p >= 1e6)  return (p/1e6).toFixed(1) + "M";
+    if (p >= 1e3)  return (p/1e3).toFixed(0) + "K";
+    return p.toFixed(0);
+  }
+
+  function buildClusters(cities){
+    state.clusters.clear();
+
+    const usable = cities
+      .filter(c => Number(c?.lat) && Number(c?.lon) && Number(c?.population) >= 5000)
+      .map(c => ({
+        id: String(c.id),
+        name: c.name,
+        lat: Number(c.lat),
+        lon: Number(c.lon),
+        population: Number(c.population) || 0
+      }));
+
+    usable.sort((a,b) => (b.population||0) - (a.population||0));
+    const assigned = new Set();
+    const radiusM = CONFIG.CLUSTER_RADIUS_KM * 1000;
+
+    const cityProd = new Map();
+    for (const c of usable) cityProd.set(c.id, estimateCityProductionEUR(c));
+
+    for (const hub of usable) {
+      if (assigned.has(hub.id)) continue;
+
+      const clusterId = `CL-${hub.id}`;
+      const cityIds = new Set([hub.id]);
+      assigned.add(hub.id);
+
+      const bounds = L.latLngBounds([[hub.lat, hub.lon],[hub.lat, hub.lon]]);
+      let popSum = hub.population || 0;
+
+      let totalProduction = cityProd.get(hub.id) || 0;
+      let biggestProduction = cityProd.get(hub.id) || 0;
+
+      for (const c of usable) {
+        if (assigned.has(c.id)) continue;
+        if (distM(hub, c) <= radiusM) {
+          assigned.add(c.id);
+          cityIds.add(c.id);
+          popSum += c.population || 0;
+          bounds.extend([c.lat, c.lon]);
+
+          const p = cityProd.get(c.id) || 0;
+          totalProduction += p;
+          if (p > biggestProduction) biggestProduction = p;
+        }
+      }
+
+      state.clusters.set(clusterId, {
+        id: clusterId,
+        hubCityId: hub.id,
+        hubName: hub.name,
+        lat: hub.lat,
+        lon: hub.lon,
+        population: popSum,
+        cityIds,
+        bounds,
+        totalProduction,
+        biggestProduction
+      });
+    }
+
+    state.nodes.clear();
+
+    for (const cl of state.clusters.values()) {
+      state.nodes.set(cl.id, {
+        id: cl.id,
+        name: cl.hubName,
+        lat: cl.lat,
+        lon: cl.lon,
+        kind: "cluster",
+        population: cl.population,
+        production: cl.totalProduction,
+        biggestProduction: cl.biggestProduction,
+        hubCityId: cl.hubCityId
+      });
+    }
+
+    for (const c of usable) {
+      let clusterId = null;
+      for (const cl of state.clusters.values()) {
+        if (cl.cityIds.has(c.id)) { clusterId = cl.id; break; }
+      }
+      state.nodes.set(c.id, {
+        id: c.id,
+        name: c.name,
+        lat: c.lat,
+        lon: c.lon,
+        kind: "city",
+        population: c.population,
+        production: cityProd.get(c.id) || 0,
+        clusterId
+      });
+    }
+
+    rebuildRoutingGraph();
+  }
+
+  // ====== Smart routing graph (kNN) ======
+  function rebuildRoutingGraph(){
+    state.routingNeighbors.clear();
+    const ids = Array.from(state.nodes.keys());
+
+    for (const id of ids) {
+      const A = state.nodes.get(id);
+      if (!A) continue;
+
+      const dists = [];
+      for (const id2 of ids) {
+        if (id2 === id) continue;
+        const B = state.nodes.get(id2);
+        if (!B) continue;
+        dists.push({ to: id2, w: distM(A, B) });
+      }
+      dists.sort((a,b) => a.w - b.w);
+      state.routingNeighbors.set(id, dists.slice(0, CONFIG.ROUTE_K_NEAREST));
+    }
+  }
+
+  // ====== Crossing test (approx in projected coords) ======
+  function segIntersectsSeg(a,b,c,d){
+    const orient = (p,q,r) => (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x);
+    const onSeg = (p,q,r) =>
+      Math.min(p.x,r.x) <= q.x && q.x <= Math.max(p.x,r.x) &&
+      Math.min(p.y,r.y) <= q.y && q.y <= Math.max(p.y,r.y);
+
+    const o1 = orient(a,b,c);
+    const o2 = orient(a,b,d);
+    const o3 = orient(c,d,a);
+    const o4 = orient(c,d,b);
+
+    if ((o1 === 0 && onSeg(a,c,b)) || (o2 === 0 && onSeg(a,d,b)) ||
+        (o3 === 0 && onSeg(c,a,d)) || (o4 === 0 && onSeg(c,b,d))) return true;
+
+    return (o1 > 0) !== (o2 > 0) && (o3 > 0) !== (o4 > 0);
+  }
+
+  function segmentCrossesAnyTrack(fromNode, toNode){
+    const A = map.project(L.latLng(fromNode.lat, fromNode.lon), 8);
+    const B = map.project(L.latLng(toNode.lat, toNode.lon), 8);
+
+    for (const t of state.tracks.values()) {
+      const n1 = state.nodes.get(t.from);
+      const n2 = state.nodes.get(t.to);
+      if (!n1 || !n2) continue;
+
+      if (t.from === fromNode.id || t.from === toNode.id || t.to === fromNode.id || t.to === toNode.id) continue;
+
+      const C = map.project(L.latLng(n1.lat, n1.lon), 8);
+      const D = map.project(L.latLng(n2.lat, n2.lon), 8);
+
+      if (segIntersectsSeg({x:A.x,y:A.y},{x:B.x,y:B.y},{x:C.x,y:C.y},{x:D.x,y:D.y})) return true;
+    }
+    return false;
+  }
+
+  function shortestPathSmartDetailed(start, goal){
+    if (start === goal) return { path: [start], cost: 0 };
+
+    const dist = new Map();
+    const prev = new Map();
+    const visited = new Set();
+    const pq = [{ id: start, d: 0 }];
+
+    dist.set(start, 0);
+
+    while (pq.length) {
+      pq.sort((a,b) => a.d - b.d);
+      const cur = pq.shift();
+      if (!cur || visited.has(cur.id)) continue;
+
+      visited.add(cur.id);
+      if (cur.id === goal) break;
+
+      const A = state.nodes.get(cur.id);
+      if (!A) continue;
+
+      for (const e of (state.routingNeighbors.get(cur.id) || [])) {
+        const B = state.nodes.get(e.to);
+        if (!B) continue;
+
+        let w = e.w;
+        if (w > 120000) w *= CONFIG.LONG_EDGE_PENALTY;
+        if (segmentCrossesAnyTrack(A, B)) w *= CONFIG.CROSSING_PENALTY;
+
+        const nd = cur.d + w;
+        if (!dist.has(e.to) || nd < dist.get(e.to)) {
+          dist.set(e.to, nd);
+          prev.set(e.to, cur.id);
+          pq.push({ id: e.to, d: nd });
+        }
+      }
+    }
+
+    if (!dist.has(goal)) return null;
+
+    const path = [];
+    let x = goal;
+    while (x !== undefined) { path.push(x); x = prev.get(x); }
+    path.reverse();
+    return { path, cost: dist.get(goal) };
+  }
+
+  // ====== Tracks ======
+  function calculateTrackCost(a, b, lanes=1){
+    const km = (distM(a,b) / 1000) || 0;
+    const constructionCost = km * CONFIG.TRACK_COST_PER_KM * lanes;
+    const maintenanceCost = km * CONFIG.TRACK_MAINTENANCE_PER_KM * lanes;
+    return { distanceKm: km, constructionCost, maintenanceCost, lanes };
+  }
+
+function midpointLatLng(a, b){
+  return L.latLng((a.lat + b.lat) / 2, (a.lon + b.lon) / 2);
+}
+
+function makeLaneLabelIcon(lanes){
+  return L.divIcon({
+    className: "",
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+    html: `<div class="lane-label">${lanes}</div>`
+  });
+}
+
+function addTrack(fromId, toId, lanes=1){
+  const a = state.nodes.get(fromId);
+  const b = state.nodes.get(toId);
+  if (!a || !b) return;
+
+  const key = [fromId, toId].sort().join("—");
+  const trackId = `TK-${key}`;
+
+  // remove existing
+  if (state.tracks.has(trackId)) {
+    const old = state.tracks.get(trackId);
+    if (old?._layer) layers.tracks.removeLayer(old._layer);
+    if (old?._label) layers.tracks.removeLayer(old._label);
+    state.tracks.delete(trackId);
+  }
+
+  const cost = calculateTrackCost(a, b, lanes);
+  state.budget -= cost.constructionCost;
+
+  // BLACK track
+  const seg = L.polyline([[a.lat,a.lon],[b.lat,b.lon]], {
+    color: "#000000",
+    weight: 2 + lanes * 2,
+    opacity: 0.92,
+    lineCap: "round"
+  }).addTo(layers.tracks);
+
+  // Lane number label at midpoint
+  const mid = midpointLatLng(a, b);
+  const label = L.marker(mid, {
+    icon: makeLaneLabelIcon(lanes),
+    interactive: false,
+    keyboard: false
+  }).addTo(layers.tracks);
+
+  seg.bindTooltip(`Track (${lanes} lane${lanes>1?"s":""})`);
+
+  seg.on("click", () => {
+    if (confirm("Delete this track segment?")) {
+      layers.tracks.removeLayer(seg);
+      layers.tracks.removeLayer(label);
+      state.tracks.delete(trackId);
+      updateUI();
+      renderLines();
+      showToast("Track deleted", "warning");
+    }
+  });
+
+  state.tracks.set(trackId, {
+    id: trackId,
+    from: fromId,
+    to: toId,
+    lanes,
+    cost,
+    _layer: seg,
+    _label: label
+  });
+}
+
+  function ensureTracksBetween(aId, bId, lanes=1){
+    const res = shortestPathSmartDetailed(aId, bId);
+    if (!res || !res.path || res.path.length < 2) {
+      addTrack(aId, bId, lanes);
+      return;
+    }
+    for (let i=0;i<res.path.length-1;i++){
+      addTrack(res.path[i], res.path[i+1], lanes);
+    }
+  }
+
+  function handleTrackBuildClick(node){
+    if (!state.pendingTrackNode) {
+      state.pendingTrackNode = node;
+      showToast(`Track: start = ${node.name}`, "info");
+      updateUI();
+      return;
+    }
+    const a = state.pendingTrackNode;
+    const b = node;
+    if (a.id === b.id) { showToast("Pick a different node", "warning"); return; }
+    addTrack(a.id, b.id, state.pendingTrackLanes || 1);
+    state.pendingTrackNode = b;
+    updateUI();
+    renderLines();
+  }
+
+  // ====== Path along existing tracks (for rendering realistic lines) ======
+  function buildTrackAdj(){
+    const adj = new Map(); // nodeId -> [{to, dist, prevTrackId}]
+    for (const t of state.tracks.values()) {
+      const A = state.nodes.get(t.from);
+      const B = state.nodes.get(t.to);
+      if (!A || !B) continue;
+      const d = distM(A, B);
+      if (!adj.has(t.from)) adj.set(t.from, []);
+      if (!adj.has(t.to)) adj.set(t.to, []);
+      adj.get(t.from).push({ to: t.to, d });
+      adj.get(t.to).push({ to: t.from, d });
+    }
+    return adj;
+  }
+
+  function shortestPathOnTracks(aId, bId, adj){
+    if (aId === bId) return { path:[aId], dist:0 };
+    const dist = new Map();
+    const prev = new Map();
+    const pq = [{ id:aId, d:0 }];
+    dist.set(aId, 0);
+
+    while (pq.length) {
+      pq.sort((x,y)=>x.d-y.d);
+      const cur = pq.shift();
+      if (!cur) break;
+      if (cur.id === bId) break;
+      if (cur.d !== dist.get(cur.id)) continue;
+
+      for (const e of (adj.get(cur.id) || [])) {
+        const nd = cur.d + e.d;
+        if (!dist.has(e.to) || nd < dist.get(e.to)) {
+          dist.set(e.to, nd);
+          prev.set(e.to, cur.id);
+          pq.push({ id:e.to, d:nd });
+        }
+      }
+    }
+
+    if (!dist.has(bId)) return null;
+    const path = [];
+    let x = bId;
+    while (x !== undefined) { path.push(x); x = prev.get(x); }
+    path.reverse();
+    return { path, dist: dist.get(bId) };
+  }
+
+  // ====== Lines (SMART insertion + frequency) ======
+  function defaultFrequencyForType(type){
+    if (type === "cargo") return 8;
+    if (type === "mixed") return 10;
+    return 12;
+  }
+
+  function linePreferredLanes(line){
+    if (!line) return 1;
+    if (line.type === "cargo") return 2;
+    if (line.type === "mixed") return 2;
+    return 1;
+  }
+
+  function addLine(name, type="passenger", color=null, circular=false, frequency=null){
+    const id = `LN-${Date.now()}`;
+    const lineColor = color || (type==="cargo" ? "#ef4444" : type==="mixed" ? "#6b7280" : "#2b6cff");
+    const freq = Number.isFinite(Number(frequency)) ? Number(frequency) : defaultFrequencyForType(type);
+
+    state.lines.set(id, {
+      id, name, type, color: lineColor,
+      stops: [],
+      circular: !!circular,
+      frequency: freq,          // trains/day
+    });
+
+    state.activeLine = id;
+    showToast(`Created line: ${name}`, "success");
+    updateUI();
+    renderLines();
+  }
+
+  // Best-fit insertion: place stop where routed distance increases the least.
+  function insertStopBestFit(line, nodeId){
+    if (!line || !Array.isArray(line.stops)) return { insertedIndex: -1 };
+    if (line.stops.includes(nodeId)) return { insertedIndex: -1 };
+
+    if (line.stops.length < 2) {
+      line.stops.push(nodeId);
+      return { insertedIndex: line.stops.length - 1 };
+    }
+
+    const costBetween = (a, b) => {
+      const res = shortestPathSmartDetailed(a, b);
+      if (res && Number.isFinite(res.cost)) return res.cost;
+      const A = state.nodes.get(a);
+      const B = state.nodes.get(b);
+      return (A && B) ? distM(A, B) : 1e15;
+    };
+
+    let best = { idx: line.stops.length, delta: Infinity };
+
+    // try inserting between every pair, plus ends
+    for (let i = 0; i <= line.stops.length; i++) {
+      const prev = (i === 0) ? null : line.stops[i - 1];
+      const next = (i === line.stops.length) ? null : line.stops[i];
+
+      let delta = 0;
+      if (prev && next) {
+        delta = costBetween(prev, nodeId) + costBetween(nodeId, next) - costBetween(prev, next);
+      } else if (prev && !next) {
+        delta = costBetween(prev, nodeId);
+      } else if (!prev && next) {
+        delta = costBetween(nodeId, next);
+      }
+
+      if (delta < best.delta) best = { idx: i, delta };
+    }
+
+    line.stops.splice(best.idx, 0, nodeId);
+    return { insertedIndex: best.idx };
+  }
+
+  function maybeAutoBuildAroundInsertion(line, insertedIndex){
+    if (!line || insertedIndex < 0) return;
+
+    const lanes = linePreferredLanes(line);
+
+    const prev = insertedIndex > 0 ? line.stops[insertedIndex - 1] : null;
+    const cur  = line.stops[insertedIndex];
+    const next = insertedIndex < line.stops.length - 1 ? line.stops[insertedIndex + 1] : null;
+
+    if (prev) ensureTracksBetween(prev, cur, lanes);
+    if (next) ensureTracksBetween(cur, next, lanes);
+
+    // if inserted in the middle, we don't delete the old segment (tracks are infrastructure)
+  }
+
+  function renderLines(){
+    layers.lines.clearLayers();
+    const adj = buildTrackAdj();
+
+    for (const line of state.lines.values()){
+      if (!Array.isArray(line.stops) || line.stops.length < 2) continue;
+
+      const latlngs = [];
+
+      // Build a polyline that follows the built track paths
+      for (let i=0; i<line.stops.length-1; i++){
+        const aId = String(line.stops[i]);
+        const bId = String(line.stops[i+1]);
+
+        const sp = shortestPathOnTracks(aId, bId, adj);
+        if (!sp || sp.path.length < 2) {
+          // fallback straight
+          const A = state.nodes.get(aId), B = state.nodes.get(bId);
+          if (A && B) {
+            if (latlngs.length) latlngs.pop();
+            latlngs.push([A.lat,A.lon],[B.lat,B.lon]);
+          }
+          continue;
+        }
+
+        const pts = sp.path.map(id => {
+          const n = state.nodes.get(id);
+          return n ? [n.lat, n.lon] : null;
+        }).filter(Boolean);
+
+        if (pts.length >= 2) {
+          if (latlngs.length) latlngs.pop(); // avoid duplicates
+          latlngs.push(...pts);
+        }
+      }
+
+      if (line.circular && line.stops.length >= 3) {
+        const aId = String(line.stops[line.stops.length-1]);
+        const bId = String(line.stops[0]);
+        const sp = shortestPathOnTracks(aId, bId, adj);
+        if (sp && sp.path.length >= 2) {
+          const pts = sp.path.map(id => {
+            const n = state.nodes.get(id);
+            return n ? [n.lat, n.lon] : null;
+          }).filter(Boolean);
+
+          if (pts.length >= 2) {
+            if (latlngs.length) latlngs.pop();
+            latlngs.push(...pts);
+          }
+        }
+      }
+
+      if (latlngs.length < 2) continue;
+
+      L.polyline(latlngs, {
+        color: line.color,
+        weight: line.id === state.activeLine ? 6 : 4,
+        opacity: line.id === state.activeLine ? 0.9 : 0.65,
+        dashArray: line.type === "cargo" ? "10,10" : null
+      }).addTo(layers.lines)
+        .bindTooltip(`${line.name} (${line.type}) • ${line.frequency ?? "?"}/day${line.circular ? " ⟳" : ""}`);
+    }
+  }
+
+  // ====== UI / selection ======
+  function makeClusterIcon(cluster){
+    const name = (cluster.hubName || cluster.id || "Cluster").toString();
+    const prod = Number(cluster.totalProduction || cluster.production || 0);
+    return L.divIcon({
+      className: "",
+      iconSize: [48, 48],
+      iconAnchor: [24, 24],
+      html: `
+        <div class="cluster-btn ${state.selectedNode?.id === cluster.id ? "active" : ""}">
+          <div>
+            <div class="name">${name}</div>
+            <div class="sub">${prodShortEUR(prod)}</div>
+          </div>
+        </div>
+      `
+    });
+  }
+
+function renderClusterMarkers(){
+  layers.clusters.clearLayers();
+
+  for (const cl of state.clusters.values()) {
+    const isActive = state.selectedNode?.id === cl.id;
+
+    const dot = L.circleMarker([cl.lat, cl.lon], {
+      radius: 6,                 // dot size
+      color: isActive ? "#10b981" : "#0f172a",
+      weight: 2,
+      fillColor: isActive ? "#10b981" : "#2b6cff",
+      fillOpacity: 0.95,
+      className: "cluster-dot",
+    });
+
+    const node = state.nodes.get(cl.id);
+    const ex = node?.econ?.biggestExport ? `${node.econ.biggestExport} (${formatCurrency(node.econ.biggestExportValue)})` : "—";
+    const need = node?.econ?.biggestNeed ? `${node.econ.biggestNeed} (${formatCurrency(node.econ.biggestNeedValue)})` : "—";
+
+    dot.bindTooltip(
+      `<strong>${cl.hubName}</strong><br>` +
+      `Cluster pop: ${fmtNum(cl.population)}<br>` +
+      `Cities: ${fmtNum(cl.cityIds.size)}<br>` +
+      `Production (proxy): ${formatCurrency(cl.totalProduction)}<br>` +
+      `Biggest export: ${ex}<br>` +
+      `Biggest need: ${need}`
+    );
+
+    // Left click: select
+    dot.on("click", () => selectNode(cl.id));
+
+    // Right click: zoom into cluster
+    dot.on("contextmenu", (e) => {
+      L.DomEvent.preventDefault(e);
+      enterCluster(cl.id);
+    });
+
+    dot.addTo(layers.clusters);
+  }
+}
+
+
+  function renderCityMarkers(cityIds){
+    layers.cities.clearLayers();
+
+    for (const id of cityIds) {
+      const n = state.nodes.get(id);
+      if (!n || n.kind !== "city") continue;
+
+      const pop = n.population || 0;
+      const r = Math.max(3, Math.min(10, Math.log10(Math.max(1,pop)) * 2.2));
+      const fill = pop >= 500000 ? "#ef4444" : pop >= 100000 ? "#f59e0b" : "#10b981";
+
+      const m = L.circleMarker([n.lat, n.lon], {
+        radius: r, color: "#0f172a", weight: 1, fillColor: fill, fillOpacity: 0.78
+      });
+
+      const ex = n.econ?.biggestExport ? `${n.econ.biggestExport} (${formatCurrency(n.econ.biggestExportValue)})` : "—";
+      const need = n.econ?.biggestNeed ? `${n.econ.biggestNeed} (${formatCurrency(n.econ.biggestNeedValue)})` : "—";
+
+      m.bindTooltip(
+        `<strong>${n.name}</strong><br>` +
+        `Pop: ${fmtNum(pop)}<br>` +
+        `Production (proxy): ${formatCurrency(n.production || 0)}<br>` +
+        `Biggest export: ${ex}<br>` +
+        `Biggest need: ${need}`
+      );
+
+      m.on("click", () => selectNode(n.id));
+      m.addTo(layers.cities);
+    }
+  }
+
+  function syncMarkerVisibility(){
+    const z = map.getZoom();
+    if (z <= CONFIG.CLUSTER_VIEW_MAX_ZOOM) {
+      layers.clusters.addTo(map);
+      layers.cities.clearLayers();
+      return;
+    }
+    layers.clusters.removeFrom(map);
+
+    if (state.activeClusterId && state.clusters.has(state.activeClusterId)) {
+      const cl = state.clusters.get(state.activeClusterId);
+      renderCityMarkers(cl.cityIds);
+      return;
+    }
+
+    const b = map.getBounds();
+    const visible = [];
+    for (const n of state.nodes.values()) {
+      if (n.kind !== "city") continue;
+      if (b.contains([n.lat, n.lon])) visible.push(n.id);
+      if (visible.length >= 1800) break;
+    }
+    renderCityMarkers(visible);
+  }
+
+  function enterCluster(clusterId){
+    const cl = state.clusters.get(clusterId);
+    if (!cl) return;
+    state.activeClusterId = clusterId;
+    map.fitBounds(cl.bounds.pad(0.25), { maxZoom: 11 });
+    updateClusterBar();
+    syncMarkerVisibility();
+    updateUI();
+    renderClusterMarkers();
+    showToast(`Entered cluster: ${cl.hubName}`, "success");
+  }
+
+  function leaveCluster(silent=false){
+    state.activeClusterId = null;
+    updateClusterBar();
+    map.setView(CONFIG.SPAIN_VIEW.center, CONFIG.SPAIN_VIEW.zoom);
+    syncMarkerVisibility();
+    updateUI();
+    renderClusterMarkers();
+    if (!silent) showToast("Left cluster view", "info");
+  }
+
+  function updateClusterBar(){
+    const bar = document.getElementById("clusterBar");
+    if (!state.activeClusterId) { bar.style.display="none"; bar.innerHTML=""; return; }
+    const cl = state.clusters.get(state.activeClusterId);
+    if (!cl) { bar.style.display="none"; bar.innerHTML=""; return; }
+
+    bar.style.display = "block";
+    bar.innerHTML = `
+      <div class="rowTop">
+        <div>
+          <div class="name">Zoomed in: ${cl.hubName}</div>
+          <div style="font-size:12px;color:#64748b;font-weight:900;">
+            Cities: ${fmtNum(cl.cityIds.size)} • Pop: ${fmtNum(cl.population)}
+          </div>
+        </div>
+        <button class="btnTiny" id="leaveClusterBtn">Leave</button>
+      </div>
+      <div style="margin-top:8px;" class="hint">
+        <b>Global:</b> connect to the <b>cluster hub</b>. <b>Zoomed:</b> target real cities.
+      </div>
+    `;
+    document.getElementById("leaveClusterBtn").onclick = () => leaveCluster(false);
+  }
+
+  function selectNode(nodeId){
+    const node = state.nodes.get(nodeId);
+    if (!node) return;
+
+    state.selectedNode = node;
+
+    // Tracks tab build mode
+    if (state.activeTab === "tracks" && state.trackBuildMode) {
+      handleTrackBuildClick(node);
+      updateUI();
+      return;
+    }
+
+    // Line building (smart insertion + auto tracks)
+    if (state.activeLine && state.lines.has(state.activeLine) && state.lineBuildMode) {
+      const line = state.lines.get(state.activeLine);
+      const { insertedIndex } = insertStopBestFit(line, nodeId);
+      if (insertedIndex >= 0) {
+        maybeAutoBuildAroundInsertion(line, insertedIndex);
+        renderLines();
+        updateUI();
+        showToast(`Added stop: ${node.name} (smart fit + auto tracks)`, "success");
+        return;
+      }
+    }
+
+    map.setView([node.lat, node.lon], Math.max(map.getZoom(), 8));
+    if (map.getZoom() <= CONFIG.CLUSTER_VIEW_MAX_ZOOM) renderClusterMarkers();
+  }
+
+  // ====== Simulation ======
+  function simulateYear(){
+    try {
+      state.year++;
+      state.budget += state.annualBudget;
+
+      computeEconomy(state, map);
+
+      renderClusterMarkers();
+      syncMarkerVisibility();
+      renderLines();
+      updateUI();
+
+      showToast(
+        `Year ${state.year} simulated. Profit: ${formatCurrency(state.profit)}`,
+        state.profit >= 0 ? "success" : "error"
+      );
+    } catch (e) {
+      console.error(e);
+      showToast("Simulation crashed", "error");
+    }
+  }
+
+  // ====== UI ======
+  function switchTab(tab){
+    state.activeTab = tab;
+    if (tab !== "tracks") { state.trackBuildMode = false; state.pendingTrackNode = null; }
+    updateUI();
+  }
+
+  function setTrackBuildMode(on){
+    state.trackBuildMode = !!on;
+    state.pendingTrackNode = null;
+    updateUI();
+    showToast(on ? "Track mode ON: click nodes to chain-build" : "Track mode OFF", on ? "success" : "warning");
+  }
+
+  function setTrackLanes(n){
+    state.pendingTrackLanes = Number(n)||1;
+    updateUI();
+  }
+
+  function createNewLine(){
+    const name = document.getElementById("lineName")?.value?.trim() || "New Line";
+    const type = document.getElementById("lineType")?.value || "passenger";
+    const circular = !!document.getElementById("lineCircular")?.checked;
+    const freq = Number(document.getElementById("lineFreq")?.value || 0) || defaultFrequencyForType(type);
+    addLine(name, type, null, circular, freq);
+  }
+
+  function selectLine(id){
+    state.activeLine = id;
+    renderLines();
+    updateUI();
+  }
+
+  function toggleCircularActive(){
+    const line = state.lines.get(state.activeLine);
+    if (!line) return;
+    line.circular = !line.circular;
+
+    if (line.circular && line.stops.length >= 3) {
+      const lanes = linePreferredLanes(line);
+      ensureTracksBetween(line.stops[line.stops.length-1], line.stops[0], lanes);
+    }
+
+    renderLines();
+    updateUI();
+    showToast(line.circular ? "Line set to circular" : "Line set to non-circular", "success");
+  }
+
+  function deleteActiveLine(){
+    const id = state.activeLine;
+    if (!id) return;
+    if (!confirm("Delete active line?")) return;
+    state.lines.delete(id);
+    state.activeLine = null;
+    renderLines();
+    updateUI();
+    showToast("Line deleted", "warning");
+  }
+
+  function clearAllTracks(){
+    layers.tracks.clearLayers();
+    state.tracks.clear();
+    state.pendingTrackNode = null;
+    renderLines();
+    updateUI();
+    showToast("Cleared all tracks", "warning");
+  }
+
+  function toggleLineBuildMode(){
+    state.lineBuildMode = !state.lineBuildMode;
+    updateUI();
+    showToast(state.lineBuildMode ? "Line building ON" : "Line building OFF", "info");
+  }
+
+  function kv(k, v){ return `<span class="k">${k}:</span> <span class="v">${v}</span>`; }
+
+  function updateUI(){
+    const panel = document.getElementById("controlPanel");
+    const linesArr = Array.from(state.lines.values());
+    const linesList = linesArr.map(l => `
+      <div class="item ${l.id===state.activeLine ? "active" : ""}" onclick="selectLine('${l.id}')">
+        <div style="font-weight:1000;color:#0f172a">${l.name}${l.circular ? " ⟳" : ""}</div>
+        <div style="font-size:12px;font-weight:900;color:#64748b">${l.stops.length} stops • ${l.type} • ${l.frequency ?? "?"}/day</div>
+      </div>
+    `).join("");
+
+    const activeCluster = state.activeClusterId ? state.clusters.get(state.activeClusterId) : null;
+
+    panel.innerHTML = `
+      <div class="section">
+        <h3 class="title">Railway Network Simulator</h3>
+        <p class="sub">
+          Year: <b>${state.year}</b> • Budget: <b>${formatCurrency(state.budget)}</b>
+          ${activeCluster ? `<span class="badge">In: ${activeCluster.hubName}</span>` : `<span class="badge">Spain</span>`}
+        </p>
+
+        <div class="tabs">
+          <div class="tab ${state.activeTab==="network"?"active":""}" onclick="switchTab('network')">Network</div>
+          <div class="tab ${state.activeTab==="tracks"?"active":""}" onclick="switchTab('tracks')">Tracks</div>
+          <div class="tab ${state.activeTab==="economy"?"active":""}" onclick="switchTab('economy')">Economy</div>
+        </div>
+      </div>
+
+      ${state.activeTab==="network" ? `
+        <div class="section">
+          <div class="hint">
+            Lines are now <b>capacity + frequency</b> aware. Lines also render <b>along built tracks</b> (no zigzag chords).
+          </div>
+
+          <button class="btn success" onclick="simulateYear()">Simulate Next Year</button>
+        </div>
+
+        <div class="section">
+          <div style="font-weight:1000;color:#0f172a;margin-bottom:8px;">Create Line</div>
+          <input id="lineName" class="field" placeholder="Line name" />
+          <div style="height:8px"></div>
+
+          <select id="lineType" class="field">
+            <option value="passenger">Passenger</option>
+            <option value="cargo">Cargo</option>
+            <option value="mixed">Mixed</option>
+          </select>
+
+          <div style="height:8px"></div>
+
+          <input id="lineFreq" class="field" type="number" min="0" max="200" step="1" value="12"
+            placeholder="Frequency (trains/day)" />
+
+          <div style="height:8px"></div>
+          <label style="display:flex;gap:10px;align-items:center;font-weight:900;color:#334155;">
+            <input id="lineCircular" type="checkbox" />
+            Circular line
+          </label>
+
+          <button class="btn" onclick="createNewLine()">Create Line</button>
+
+          <button class="btn secondary" onclick="toggleLineBuildMode()">
+            Line building: ${state.lineBuildMode ? "ON" : "OFF"}
+          </button>
+        </div>
+
+        <div class="section">
+          <div style="font-weight:1000;color:#0f172a;margin-bottom:8px;">Lines</div>
+          <div class="list">${linesList || `<div style="padding:14px;color:#64748b;font-weight:1000;">No lines yet</div>`}</div>
+
+          <div class="row" style="margin-top:10px;">
+            <button class="btn secondary" onclick="toggleCircularActive()">Toggle circular</button>
+            <button class="btn danger" onclick="deleteActiveLine()">Delete line</button>
+          </div>
+
+          <div class="hint" style="margin-top:10px;">
+            When adding a stop, it gets inserted where it fits best (min added routed distance),
+            and tracks are auto-built around that insertion.
+          </div>
+        </div>
+      ` : ""}
+
+      ${state.activeTab==="tracks" ? `
+        <div class="section">
+          <div class="hint">Track mode chains: A→B then next click builds B→C.</div>
+
+          <button class="btn ${state.trackBuildMode ? "warning" : "success"}"
+            onclick="setTrackBuildMode(${!state.trackBuildMode})">
+            ${state.trackBuildMode ? "Track Mode: ON" : "Track Mode: OFF"}
+          </button>
+
+          <div style="margin-top:10px;">
+            <div class="k">Lanes</div>
+            <select class="field" onchange="setTrackLanes(this.value)">
+              <option value="1" ${state.pendingTrackLanes===1?"selected":""}>1 lane</option>
+              <option value="2" ${state.pendingTrackLanes===2?"selected":""}>2 lanes</option>
+              <option value="3" ${state.pendingTrackLanes===3?"selected":""}>3 lanes</option>
+              <option value="4" ${state.pendingTrackLanes===4?"selected":""}>4 lanes</option>
+            </select>
+          </div>
+
+          <div class="hint" style="margin-top:10px;">
+            Current start node: <b>${state.pendingTrackNode ? state.pendingTrackNode.name : "—"}</b>
+          </div>
+
+          <button class="btn danger" onclick="clearAllTracks()">Clear ALL tracks</button>
+        </div>
+      ` : ""}
+
+      ${state.activeTab==="economy" ? `
+        <div class="section">
+          <div class="hint">
+            Economy now uses <b>frequency + capacity + congestion</b>. If you overload corridors, profit drops.
+          </div>
+
+          <div style="margin-top:10px;">
+            <div>${kv("Annual revenue", formatCurrency(state.revenue))}</div>
+            <div>${kv("Annual costs", formatCurrency(state.costs))}</div>
+            <div>${kv("Annual profit", `<span style="color:${state.profit>=0?"#10b981":"#ef4444"}">${formatCurrency(state.profit)}</span>`)}</div>
+          </div>
+
+          <button class="btn warning" onclick="simulateYear()">Simulate Next Year</button>
+        </div>
+      ` : ""}
+    `;
+  }
+
+  async function boot(){
+    initMap();
+
+    const cities = await loadJSON("./cities_es.json");
+    state.cities = Array.isArray(cities) ? cities : (Array.isArray(cities?.cities) ? cities.cities : cities);
+
+    buildClusters(state.cities);
+
+    // Compute economy once so export/need tooltips exist immediately
+    computeEconomy(state, map);
+
+    renderClusterMarkers();
+    syncMarkerVisibility();
+    updateClusterBar();
+    updateUI();
+
+    showToast(`Loaded cities: ${fmtNum(state.cities.length)} • clusters: ${fmtNum(state.clusters.size)}`, "success");
+  }
+
+  // expose globals
+  window.switchTab = switchTab;
+  window.simulateYear = simulateYear;
+  window.setTrackBuildMode = setTrackBuildMode;
+  window.setTrackLanes = setTrackLanes;
+  window.createNewLine = createNewLine;
+  window.selectLine = selectLine;
+  window.toggleCircularActive = toggleCircularActive;
+  window.deleteActiveLine = deleteActiveLine;
+  window.clearAllTracks = clearAllTracks;
+  window.toggleLineBuildMode = toggleLineBuildMode;
+
+  boot().catch(err => {
+    console.error(err);
+    showToast("Failed to load data files", "error");
+    document.getElementById("controlPanel").innerHTML = `
+      <div class="section">
+        <h3 class="title">Load error</h3>
+        <div class="hint">
+          ${String(err)}<br><br>
+          Make sure these files sit next to <code>index.html</code>:<br>
+          • <b>cities_es.json</b><br>
+          • <b>economy.js</b><br><br>
+          Run a local server, e.g. <code>python -m http.server 8000</code>
+        </div>
+      </div>
+    `;
+  });
+</script>
+</body>
+</html>
