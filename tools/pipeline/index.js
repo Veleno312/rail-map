@@ -15,6 +15,7 @@ const STAGING_DIR = path.join(OFFLINE_DIR, "staging");
 const TILE_DIR = path.join(OFFLINE_DIR, "tiles");
 const PACK_DIR = path.join(OFFLINE_DIR, "packs");
 const MANIFEST_FILE = path.join(OFFLINE_DIR, "manifest.json");
+const PUBLIC_OFFLINE_DIR = path.join(PROJECT_ROOT, "public", "data", "offline");
 
 const STEP_DESCRIPTIONS = [
   {
@@ -112,6 +113,23 @@ async function runCommand(cmd) {
   const { stdout, stderr } = await exec(cmd, { cwd: PROJECT_ROOT });
   if (stdout) process.stdout.write(stdout);
   if (stderr) process.stderr.write(stderr);
+}
+
+async function copyDir(src, dest) {
+  if (!(await fileExists(src))) return;
+  await fs.rm(dest, { recursive: true, force: true });
+  await ensureDir(path.dirname(dest));
+  await fs.cp(src, dest, { recursive: true });
+}
+
+async function syncPublicOffline() {
+  await ensureDir(PUBLIC_OFFLINE_DIR);
+  const manifestSrc = path.join(OFFLINE_DIR, "manifest.json");
+  if (await fileExists(manifestSrc)) {
+    await fs.copyFile(manifestSrc, path.join(PUBLIC_OFFLINE_DIR, "manifest.json"));
+  }
+  await copyDir(path.join(OFFLINE_DIR, "tiles"), path.join(PUBLIC_OFFLINE_DIR, "tiles"));
+  await copyDir(path.join(OFFLINE_DIR, "packs"), path.join(PUBLIC_OFFLINE_DIR, "packs"));
 }
 
 async function gatherDataStep(ctx) {
@@ -282,6 +300,7 @@ async function run(stepsToRun, options) {
       break;
     }
   }
+  await syncPublicOffline();
 }
 
 function printHelp() {

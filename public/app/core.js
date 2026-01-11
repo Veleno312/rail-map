@@ -1766,6 +1766,7 @@ let state = {
   scenarioPackManifest: null,
   scenarioPackMeta: null,
   scenarioPackLicense: null,
+  offlineManifest: null,
 
   year: 2024,
   budget: CONFIG.STARTING_BUDGET,

@@ -1,0 +1,13 @@
+{
+  "datasetVersion": "Eurostat 2026-01-05",
+  "modelVersion": "offline-0.0.0",
+  "schemaVersion": "rail-luti-scenario-pack@0.1",
+  "sourcePack": "offline-sample-pack",
+  "generatedAt": "2026-01-11T14:08:30.997Z",
+  "tiles": [
+    "tile-6-31-24"
+  ],
+  "nodes": 5,
+  "tracks": 4,
+  "license": "CC-BY-4.0"
+}

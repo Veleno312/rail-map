@@ -1,0 +1,224 @@
+{
+  "schemaVersion": "rail-luti-scenario-pack@0.1",
+  "manifest": {
+    "schemaVersion": "rail-luti-scenario-pack@0.1",
+    "datasetVersion": "Eurostat 2026-01-05",
+    "modelVersion": "offline-0.0.0",
+    "name": "offline-sample-pack",
+    "updatedAt": "2026-01-11T14:08:30.130Z",
+    "tiles": [
+      "tile-6-31-24"
+    ],
+    "license": "CC-BY-4.0"
+  },
+  "meta": {
+    "title": "Offline stub scenario pack",
+    "datasetVersion": "Eurostat 2026-01-05",
+    "modelVersion": "offline-0.0.0",
+    "createdAt": "2026-01-11T14:08:30.136Z"
+  },
+  "studyArea": {
+    "crs": "EPSG:4326",
+    "bbox": [
+      -10,
+      35,
+      5,
+      45
+    ],
+    "country": "ES",
+    "name": "Spain sample"
+  },
+  "calendar": {
+    "baseDate": "2025-01-01",
+    "daysPerMonth": 30,
+    "timeStep": {
+      "opsSeconds": 1,
+      "landUseDays": 30
+    }
+  },
+  "parameters": {
+    "generalizedCost": {
+      "transferPenaltyMin": 8,
+      "waitTimeFactor": 0.5,
+      "inVehicleTimeFactor": 1
+    },
+    "accessibility": {
+      "decayBetaPerMin": 0.045
+    }
+  },
+  "zones": [
+    {
+      "id": "node-1",
+      "name": "Madrid",
+      "centroid": [
+        -3.70256,
+        40.4165
+      ],
+      "population": 3255944,
+      "jobs": 0,
+      "housing": 0,
+      "rentIndex": 1,
+      "incomeIndex": 1
+    },
+    {
+      "id": "node-2",
+      "name": "Barcelona",
+      "centroid": [
+        2.15899,
+        41.38879
+      ],
+      "population": 1686208,
+      "jobs": 0,
+      "housing": 0,
+      "rentIndex": 1,
+      "incomeIndex": 1
+    },
+    {
+      "id": "node-3",
+      "name": "Valencia",
+      "centroid": [
+        -0.37966,
+        39.47391
+      ],
+      "population": 824340,
+      "jobs": 0,
+      "housing": 0,
+      "rentIndex": 1,
+      "incomeIndex": 1
+    },
+    {
+      "id": "node-4",
+      "name": "Zaragoza",
+      "centroid": [
+        -0.87734,
+        41.65606
+      ],
+      "population": 686986,
+      "jobs": 0,
+      "housing": 0,
+      "rentIndex": 1,
+      "incomeIndex": 1
+    },
+    {
+      "id": "node-5",
+      "name": "Sevilla",
+      "centroid": [
+        -5.97317,
+        37.38283
+      ],
+      "population": 686741,
+      "jobs": 0,
+      "housing": 0,
+      "rentIndex": 1,
+      "incomeIndex": 1
+    }
+  ],
+  "networks": {
+    "rail": {
+      "lines": []
+    }
+  },
+  "nodes": [
+    {
+      "id": "node-1",
+      "name": "Madrid",
+      "lat": 40.4165,
+      "lon": -3.70256,
+      "population": 3255944,
+      "jobs": 0,
+      "housing": 0,
+      "rentIndex": 1,
+      "incomeIndex": 1
+    },
+    {
+      "id": "node-2",
+      "name": "Barcelona",
+      "lat": 41.38879,
+      "lon": 2.15899,
+      "population": 1686208,
+      "jobs": 0,
+      "housing": 0,
+      "rentIndex": 1,
+      "incomeIndex": 1
+    },
+    {
+      "id": "node-3",
+      "name": "Valencia",
+      "lat": 39.47391,
+      "lon": -0.37966,
+      "population": 824340,
+      "jobs": 0,
+      "housing": 0,
+      "rentIndex": 1,
+      "incomeIndex": 1
+    },
+    {
+      "id": "node-4",
+      "name": "Zaragoza",
+      "lat": 41.65606,
+      "lon": -0.87734,
+      "population": 686986,
+      "jobs": 0,
+      "housing": 0,
+      "rentIndex": 1,
+      "incomeIndex": 1
+    },
+    {
+      "id": "node-5",
+      "name": "Sevilla",
+      "lat": 37.38283,
+      "lon": -5.97317,
+      "population": 686741,
+      "jobs": 0,
+      "housing": 0,
+      "rentIndex": 1,
+      "incomeIndex": 1
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "from": "node-1",
+      "to": "node-2",
+      "lanes": 2,
+      "status": "built",
+      "progress": 1,
+      "cost": {
+        "constructionCost": 0
+      }
+    },
+    {
+      "id": "edge-2",
+      "from": "node-2",
+      "to": "node-3",
+      "lanes": 2,
+      "status": "built",
+      "progress": 1,
+      "cost": {
+        "constructionCost": 0
+      }
+    },
+    {
+      "id": "edge-3",
+      "from": "node-3",
+      "to": "node-4",
+      "lanes": 2,
+      "status": "built",
+      "progress": 1,
+      "cost": {
+        "constructionCost": 0
+      }
+    },
+    {
+      "id": "edge-4",
+      "from": "node-4",
+      "to": "node-5",
+      "lanes": 2,
+      "status": "built",
+      "progress": 1,
+      "cost": {
+        "constructionCost": 0
+      }
+    }
+  ]
+}
