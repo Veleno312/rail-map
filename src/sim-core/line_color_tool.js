@@ -438,7 +438,7 @@ if (typeof window.LineColorTool === 'function') {
 } else {
   console.error('LineColorTool class not available');
   window.lineColorTool = {
-    selectLine: function(lineId) {
+    selectLine: function() {
       if (window.showToast) {
         window.showToast('Line color tool not available', 'error');
       }

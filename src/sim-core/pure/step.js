@@ -10,8 +10,12 @@ function safeClone(value, seen = new WeakSet()) {
   // Skip functions
   if (typeof value === 'function') return undefined;
   
-  // Skip DOM elements and nodes
-  if (value instanceof HTMLElement || value instanceof Node || value instanceof Window) return undefined;
+  // Skip DOM elements and nodes when available
+  if ((typeof HTMLElement !== 'undefined' && value instanceof HTMLElement) ||
+      (typeof Node !== 'undefined' && value instanceof Node) ||
+      (typeof Window !== 'undefined' && value instanceof Window)) {
+    return undefined;
+  }
   
   // Handle Maps and Sets - pass by reference to maintain functionality
   if (value instanceof Map || value instanceof Set) {
@@ -90,7 +94,7 @@ function safeClone(value, seen = new WeakSet()) {
     try {
       const json = JSON.stringify(value);
       return JSON.parse(json);
-    } catch (e) {
+    } catch {
       const out = {};
       for (const [k, v] of Object.entries(value)) {
         const cloned = safeClone(v, seen);

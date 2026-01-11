@@ -1,0 +1,317 @@
+You are Codex working inside this repo (current structure):
+
+rail-map/
+  index.html
+  cities_es.json
+  custom_places.json
+  app/
+    core.js
+    init.js
+    map_layers.js
+    network.js
+    sim.js
+    ui.js
+    service_clock.js
+    (and others)
+
+Goal: Replace the current “clusters/cities as simulation nodes” with a station-first transport model:
+
+1) Base layer (truth): Nodes = stations, Edges = track segments
+2) Demand layer: cells (Spain uses comarcas polygons)
+3) Demand assignment: cells → stations using gravity/scoring (access time + rail connectivity + service quality + congestion)
+4) Feedback loop: editing network/stations/lines recomputes catchments and underserved; overlays update
+
+Constraints:
+- Keep existing UI and map working (Leaflet).
+- Preserve existing “line build” workflow but enforce that line stops are stations only.
+- Keep backwards compatibility for saves if possible (or migrate with a clear migration).
+- Do NOT delete existing cluster logic immediately; keep it as an optional overlay/view, but simulation must not depend on it.
+
+Deliverables:
+- Code changes across app/*.js
+- New files in app/ for station/demand graph
+- Add UI controls to toggle overlays and force recomputation
+- Add docs in README describing model and how to use
+
+------------------------------------------------------------
+A. NEW CORE DATA MODEL (in state)
+------------------------------------------------------------
+
+Modify the global state object (wherever it is defined; likely in app/core.js or app/ui.js) so it includes:
+
+state.stations: Map<stationId, Station>
+state.tracks: Map<trackId, Track> (already exists; ensure it connects station ids)
+state.cells: Map<cellId, Cell> (demand cells)
+state.cellToStationAllocation: Map<cellId, Array<{stationId, share, pax, freight, score}>>
+state.stationLoad: Map<stationId, {pax, freight, loadRatio, congestionPenalty}>
+state.underservedByCell: Map<cellId, number>  // used for heat overlay
+state.viewMode: "stations" | "cities" | "clusters"  // display only
+state.mapLayers: {
+  showStations: boolean,
+  showTracks: boolean,
+  showLines: boolean,
+  showTrains: boolean,
+  showComarcaBorders: boolean,
+  showDemandHeat: boolean,
+  showCatchments: boolean,
+  showUnderserved: boolean
+}
+state.simConfig: {
+  accessSpeedKmh: number,         // e.g. 50
+  maxAccessKm: number,            // e.g. 60
+  gravityAlpha: number,           // access-time decay, e.g. 2.2
+  railBeta: number,               // rail-time factor, e.g. 0.6 (optional)
+  candidateStationsK: number,      // e.g. 12
+  congestionGamma: number,         // e.g. 2.0
+  serviceQualityWeight: number     // e.g. 0.25
+}
+
+Stations are the ONLY simulation nodes. Cities/clusters are overlays/demand helpers only.
+
+------------------------------------------------------------
+B. STATION DATA (v1 = derived from cities, later can be real)
+------------------------------------------------------------
+
+Create app/stations.js that exports:
+
+- buildStationsFromCities(cities, {populationThreshold}) -> Map
+- toggleStation(stationId) or createStationFromCity(cityId)
+- getStationLatLng(station)
+
+Implementation v1:
+- Use cities_es.json to seed stations:
+  - stationId = "ST-" + city.id
+  - include cities with population >= 20_000 as stations
+- Provide a UI action to toggle a city’s station status:
+  - In Cities view, clicking a city shows “Make/Remove Station”
+  - If removed, it is no longer a station node; lines cannot stop there.
+
+IMPORTANT:
+- Existing lines that reference non-station nodes must be migrated:
+  - Either (a) auto-convert referenced city nodes into stations, OR
+  - (b) remove invalid stops and warn user.
+Pick (a) for a smoother transition.
+
+------------------------------------------------------------
+C. TRACK GRAPH + ROUTING
+------------------------------------------------------------
+
+Create app/graph.js:
+
+- buildAdjacencyFromTracks(state.stations, state.tracks) -> adjacency
+- dijkstraTravelTime(fromStationId, toStationId, adjacency, edgeTimeFn) -> {timeMin, path}
+- multiSourceDijkstra(sources[], adjacency, edgeTimeFn) -> Map<stationId, timeMin>
+
+Edge weight:
+- trackTimeMin = (distanceKm / effectiveSpeedKmh) * 60
+- effectiveSpeedKmh = min(track.maxSpeedKmh (if present) else default, line speed if line is used)
+For infrastructure-only connectivity, just use track speed / a default speed class (e.g. 120).
+
+Compute distanceKm if missing using haversine between station coords.
+
+------------------------------------------------------------
+D. DEMAND CELLS FROM COMARCAS
+------------------------------------------------------------
+
+Create app/cells.js:
+
+- loadComarcasGeoJSON(url) -> GeoJSON
+- buildCellsFromGeoJSON(geojson) -> Map<cellId, Cell>
+
+Cell fields:
+{
+  id, name,
+  centroidLat, centroidLon,
+  pop, jobs, industryShares, growth
+}
+
+If comarcas.geojson has no population fields, approximate using:
+- city population sums within polygon (point-in-polygon for cities), OR
+- fallback: a small default (e.g. 5_000) so system still runs
+
+Prefer: detect likely population keys:
+- "population", "pob", "POB", "POP", etc
+If none found, use the city-sum fallback.
+
+------------------------------------------------------------
+E. DEMAND ASSIGNMENT (cells -> stations)
+------------------------------------------------------------
+
+Create app/demand_assign.js with main function:
+
+recomputeDemandModel(state, map) -> updates:
+- state.cellToStationAllocation
+- state.stationLoad
+- state.underservedByCell
+- (optional) state.catchmentByCell = dominant station id
+
+Steps:
+
+1) Build candidate stations per cell:
+- Compute straight-line distance from cell centroid to each station
+- Filter by maxAccessKm; if none, take nearest K anyway (so remote cells still pick something)
+- Keep top K by distance
+
+2) Compute access time:
+accessMin = (distanceKm / accessSpeedKmh) * 60
+
+3) Compute serviceQuality(station):
+Use current lines in state.lines:
+- service = sum over lines serving station of:
+  - departures/day or frequencyPerDay if available else count of departures array
+  - capacity proxy: line_dailyCapacity(line) if exists in core.js
+serviceQuality = 1 + serviceQualityWeight * log(1 + service)
+
+4) Compute congestion penalty:
+After an initial pass, estimate stationAssignedDemand and stationCapacity:
+- capacity = sum of line_dailyCapacity(line) for lines serving station (pax + freight separately if you want)
+- loadRatio = demand / max(1, capacity)
+- congestionPenalty = 1 / (1 + loadRatio^congestionGamma)
+
+Do it in two-pass:
+- Pass A: allocate ignoring congestion to get initial loads
+- Compute congestionPenalty
+- Pass B: allocate again with congestion included
+
+5) Compute score and allocate:
+score = exp(-gravityAlpha * accessMin/60) * serviceQuality * congestionPenalty
+Normalize scores for cell across candidate stations
+Allocate cell passenger demand:
+paxDemand = pop * paxFactor (e.g. 0.35 trips/day equivalent, tunable)
+Allocate freight demand:
+freightDemand = pop * freightFactor OR from industry shares (placeholder OK)
+
+Store allocation array per cell:
+[{stationId, share, pax, freight, score}...]
+
+6) Underserved:
+Define servedness as sum of allocated shares * exp(-gravityAlpha * accessTimeHours)
+Or simpler:
+bestAccessMin = min accessMin to a station
+servedness = exp(-gravityAlpha * bestAccessMin/60)
+underserved = pop * (1 - servedness)
+Store in state.underservedByCell
+
+7) Catchment (optional overlay):
+dominant station = station with max share
+state.catchmentByCell[cellId] = stationId
+
+Trigger recomputeDemandModel when:
+- station toggled/created/deleted
+- track added/removed/upgraded
+- line created/edited (stops, frequency/departures, carriages/speed)
+- load game / new game
+Add a button “Recompute demand” for manual forcing.
+
+------------------------------------------------------------
+F. ENFORCE “LINE STOPS MUST BE STATIONS”
+------------------------------------------------------------
+
+Wherever line building adds a stop (likely app/network.js / app/ui.js):
+- currently it adds nodeId from state.nodes
+Change so:
+- only allow adding stationId from state.stations
+- if user clicks a city, show message “Not a station. Convert to station first.”
+- provide UI action to “Convert city to station”.
+
+Rendering trains and lines:
+- Must use station lat/lon (not cluster/city nodes)
+- Keep city/cluster rendering as overlays but do not use them for routes.
+
+IMPORTANT migration:
+- state.nodes currently includes clusters/cities. Keep it for overlays.
+- Add state.stations separately and use that for simulation and line stops.
+
+------------------------------------------------------------
+G. MAP OVERLAYS / LAYERS
+------------------------------------------------------------
+
+In app/map_layers.js:
+- Add Leaflet layer groups:
+  layers.comarcaBorders
+  layers.demandHeat
+  layers.catchments
+
+Implement:
+1) Comarca borders:
+- Draw polygons with light stroke, no fill when showComarcaBorders
+
+2) Demand heat / underserved:
+- Shade polygons based on state.underservedByCell
+- Use a simple color scale function (do not introduce heavy deps)
+
+3) Catchments:
+- Option A: color polygons by dominant station (hash stationId -> color)
+- Option B: draw centroid -> dominant station lines (thin lines) for debugging
+
+Stations marker styling:
+- Stations are distinct markers (different icon)
+- Cities/clusters remain as dots if viewMode enabled
+
+Update syncMarkerVisibility so:
+- viewMode controls which markers appear
+- simulation markers remain consistent
+
+------------------------------------------------------------
+H. UI CHANGES
+------------------------------------------------------------
+
+In app/ui.js:
+Add to Network tab:
+- Dropdown: viewMode (clusters/cities/stations)
+- Checkboxes for overlays: comarca borders, demand heat, catchments
+- Button: “Recompute demand”
+- Small readouts:
+  - total underserved (sum over cells)
+  - top 5 underserved cells
+  - top 5 overloaded stations (by loadRatio)
+
+Selection inspector:
+- If station selected: show assigned pax/freight, #lines serving, congestion
+- If cell selected: show pop, best station, underserved score, top 3 allocations
+
+------------------------------------------------------------
+I. SAVE/LOAD MIGRATION
+------------------------------------------------------------
+
+Modify saveGame/loadGame in app/init.js:
+Include:
+- station list (or station toggles set)
+- simConfig
+- mapLayers
+- viewMode
+- demand model outputs are derivable; don’t save them (recompute on load)
+
+When loading an old save:
+- if lines reference old node ids (cities), auto-convert those into stations (create station entries).
+- Ensure state.lines.stops becomes station IDs.
+
+After loadGame, call recomputeDemandModel and refresh overlays.
+
+------------------------------------------------------------
+J. TESTS / ACCEPTANCE CHECKLIST (manual)
+------------------------------------------------------------
+
+1) App loads and shows map.
+2) Stations view: only stations visible; building a line can only add station stops.
+3) Cities view: clicking a city allows “Convert to station”; after converting, it appears in Stations view.
+4) Comarca borders toggle works.
+5) Demand heat toggle works; underserved map changes when adding stations or lines.
+6) Recompute button updates station loads and underserved.
+7) Save & load preserves station toggles, lines, and view settings; demand recomputes on load.
+
+------------------------------------------------------------
+K. IMPORTANT: KEEP EXISTING FEATURES WORKING
+------------------------------------------------------------
+
+- Do not break simulateYear() in app/sim.js
+- Keep economy.js integration, but update it so it reads station loads if needed
+- Existing moving train overlay (dynFlow_render in sim.js) must render using station stop coordinates.
+
+------------------------------------------------------------
+Implementation notes:
+- Use no new external libs.
+- Use small helper functions: haversineKm, pointInPolygon (basic), centroid of polygon.
+- Keep changes well-scoped: new modules in app/ and minimal edits to existing.
+
+End of task.

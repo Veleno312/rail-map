@@ -8,58 +8,47 @@
 function RK4Solver(dt = 1.0) {
   this.dt = dt; // Time step
 }
-  
-  /**
-   * Solve ODE system using RK4
-   * @param {Object} state - Current state variables
-   * @param {Function} derivatives - Function that returns derivatives dY/dt
-   * @param {number} t - Current time
-   * @returns {Object} New state after one time step
-   */
-  step(state, derivatives, t) {
-    const k1 = derivatives(state, t);
-    const k2 = derivatives(this.addState(state, k1, this.dt * 0.5), t + this.dt * 0.5);
-    const k3 = derivatives(this.addState(state, k2, this.dt * 0.5), t + this.dt * 0.5);
-    const k4 = derivatives(this.addState(state, k3, this.dt), t + this.dt);
-    
-    // RK4 weighted average
-    const weightedSum = this.addState(
-      this.addState(
-        this.addState(k1, k2, 2),
-        this.addState(k3, k4, 2),
-        1
-      ),
-      state,
-      this.dt / 6
-    );
-    
-    return weightedSum;
-  }
-  
-  /**
-   * Add two state objects with optional scaling
-   */
-  addState(state1, state2, scale2 = 1) {
-    const result = {};
-    
-    for (const key in state1) {
-      if (typeof state1[key] === 'number') {
-        result[key] = state1[key] + (state2[key] || 0) * scale2;
-      } else {
-        result[key] = state1[key]; // Preserve non-numeric fields
-      }
+
+RK4Solver.prototype.step = function(state, derivatives, t) {
+  const k1 = derivatives(state, t);
+  const k2 = derivatives(this.addState(state, k1, this.dt * 0.5), t + this.dt * 0.5);
+  const k3 = derivatives(this.addState(state, k2, this.dt * 0.5), t + this.dt * 0.5);
+  const k4 = derivatives(this.addState(state, k3, this.dt), t + this.dt);
+
+  // RK4 weighted average
+  const weightedSum = this.addState(
+    this.addState(
+      this.addState(k1, k2, 2),
+      this.addState(k3, k4, 2),
+      1
+    ),
+    state,
+    this.dt / 6
+  );
+
+  return weightedSum;
+};
+
+RK4Solver.prototype.addState = function(state1, state2, scale2 = 1) {
+  const result = {};
+
+  for (const key in state1) {
+    if (typeof state1[key] === 'number') {
+      result[key] = state1[key] + (state2[key] || 0) * scale2;
+    } else {
+      result[key] = state1[key]; // Preserve non-numeric fields
     }
-    
-    // Add any keys only in state2
-    for (const key in state2) {
-      if (typeof state2[key] === 'number' && !(key in result)) {
-        result[key] = (state2[key] || 0) * scale2;
-      }
-    }
-    
-    return result;
   }
-}
+
+  // Add any keys only in state2
+  for (const key in state2) {
+    if (typeof state2[key] === 'number' && !(key in result)) {
+      result[key] = (state2[key] || 0) * scale2;
+    }
+  }
+
+  return result;
+};
 
 /**
  * Euler's method (simpler, faster, less accurate)

@@ -219,7 +219,7 @@ if (typeof window.EventTimeline === 'function') {
     hide: function() {
       // No-op
     },
-    updateEvents: function(state) {
+    updateEvents: function() {
       // No-op
     }
   };

@@ -45,7 +45,7 @@ window.simCoreStep = function simCoreStep(prevState, input) {
 					const json = JSON.stringify(val);
 					JSON.parse(json); // Verify it can be parsed back
 					return true;
-				} catch (e) {
+				} catch {
 					return false;
 				}
 			}
@@ -78,12 +78,12 @@ window.simCoreStep = function simCoreStep(prevState, input) {
 				try {
 					// Deep clone via JSON for plain objects
 					return JSON.parse(JSON.stringify(val));
-				} catch (e) {
+				} catch {
 					// If JSON fails, try manual cloning
 					try {
 						const obj = {};
 						for (const key in val) {
-							if (val.hasOwnProperty(key)) {
+							if (Object.prototype.hasOwnProperty.call(val, key)) {
 								obj[key] = safeClone(val[key]);
 							}
 						}
@@ -145,7 +145,7 @@ window.simCoreStep = function simCoreStep(prevState, input) {
 					const nodesMap = new Map();
 					if (typeof state.nodes === 'object') {
 						for (const key in state.nodes) {
-							if (state.nodes.hasOwnProperty(key)) {
+							if (Object.prototype.hasOwnProperty.call(state.nodes, key)) {
 								nodesMap.set(key, state.nodes[key]);
 							}
 						}
@@ -164,7 +164,7 @@ window.simCoreStep = function simCoreStep(prevState, input) {
 					const tracksMap = new Map();
 					if (typeof state.tracks === 'object') {
 						for (const key in state.tracks) {
-							if (state.tracks.hasOwnProperty(key)) {
+							if (Object.prototype.hasOwnProperty.call(state.tracks, key)) {
 								tracksMap.set(key, state.tracks[key]);
 							}
 						}
@@ -183,7 +183,7 @@ window.simCoreStep = function simCoreStep(prevState, input) {
 					const linesMap = new Map();
 					if (typeof state.lines === 'object') {
 						for (const key in state.lines) {
-							if (state.lines.hasOwnProperty(key)) {
+							if (Object.prototype.hasOwnProperty.call(state.lines, key)) {
 								linesMap.set(key, state.lines[key]);
 							}
 						}
@@ -217,9 +217,9 @@ window.simCoreStep = function simCoreStep(prevState, input) {
 			
 			// Test basic Map operations
 			try {
-				const testNodes = state.nodes.get('test');
-				const testTracks = state.tracks.get('test');
-				const testLines = state.lines.get('test');
+				state.nodes.get('test');
+				state.tracks.get('test');
+				state.lines.get('test');
 				console.log('Map operations test passed');
 			} catch (e) {
 				console.error('Map operations test failed:', e);
@@ -251,9 +251,9 @@ window.simCoreStep = function simCoreStep(prevState, input) {
 			
 			// Test basic Map operations
 			try {
-				const testNodes = state.nodes.get('test');
-				const testTracks = state.tracks.get('test');
-				const testLines = state.lines.get('test');
+				state.nodes.get('test');
+				state.tracks.get('test');
+				state.lines.get('test');
 				console.log('Map operations test passed');
 			} catch (e) {
 				console.error('Map operations test failed:', e);

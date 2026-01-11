@@ -135,7 +135,7 @@ TileLoader.prototype.generateMockNodes = function(bounds, zoom) {
     const lng = bounds.west + Math.random() * (bounds.east - bounds.west);
     
     nodes.push({
-      id: `node_${x}_${y}_${i}`,
+      id: `node_${zoom}_${i}`,
       lat,
       lng,
       name: `Node ${i}`,
@@ -150,6 +150,7 @@ TileLoader.prototype.generateMockNodes = function(bounds, zoom) {
 TileLoader.prototype.generateMockTracks = function(bounds, zoom) {
   // Generate mock tracks
   const trackCount = Math.max(0, Math.floor(Math.pow(2, zoom) / 20));
+  const nodePool = Math.max(1, Math.floor(Math.pow(2, zoom) / 10));
   const tracks = [];
   
   for (let i = 0; i < trackCount; i++) {
@@ -159,9 +160,9 @@ TileLoader.prototype.generateMockTracks = function(bounds, zoom) {
     const endLng = bounds.west + Math.random() * (bounds.east - bounds.west);
     
     tracks.push({
-      id: `track_${x}_${y}_${i}`,
-      from: `node_${x}_${y}_${Math.floor(Math.random() * 10)}`,
-      to: `node_${x}_${y}_${Math.floor(Math.random() * 10)}`,
+      id: `track_${zoom}_${i}`,
+      from: `node_${zoom}_${Math.floor(Math.random() * nodePool)}`,
+      to: `node_${zoom}_${Math.floor(Math.random() * nodePool)}`,
       startLat,
       startLng,
       endLat,

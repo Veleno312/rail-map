@@ -318,6 +318,122 @@
       max-width:420px;
     }
 
+    /* Bottom navigation drop-up styling */
+    #bottomTabBar{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      justify-content:center;
+      gap:6px;
+      padding:12px 14px 14px;
+      position:fixed;
+      left:50%;
+      right:auto;
+      bottom:14px;
+      transform:translateX(-50%);
+      width:calc(100% - 28px);
+      max-width:760px;
+      border-radius:18px;
+      background:linear-gradient(135deg,rgba(15,23,42,0.95),rgba(14,165,233,0.8));
+      box-shadow:0 18px 40px rgba(15,23,42,0.45);
+      z-index:1200;
+      overflow:visible;
+      pointer-events:auto;
+    }
+    #bottomTabBar::before{
+      content:"";
+      position:absolute;
+      left:20px;
+      right:20px;
+      bottom:48px;
+      height:2px;
+      border-radius:1px;
+      background:linear-gradient(90deg,#0ea5e9,#38bdf8);
+      opacity:0.6;
+      transform-origin:left;
+    }
+    #bottomTabBar .bottom-primary-row{
+      position:relative;
+      z-index:2;
+      width:100%;
+      display:flex;
+      gap:6px;
+      justify-content:center;
+      flex-wrap:wrap;
+    }
+    #bottomTabBar .bottom-primary-tab{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      padding:8px 14px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,0.2);
+      background:rgba(255,255,255,0.1);
+      color:#e2e8f0;
+      font-weight:900;
+      font-size:12px;
+      transition:background 0.2s,color 0.2s,border 0.2s;
+      box-shadow:0 8px 20px rgba(15,23,42,0.25);
+    }
+    #bottomTabBar .bottom-primary-tab.active,
+    #bottomTabBar .bottom-primary-tab:hover{
+      border-color:#38bdf8;
+      background:linear-gradient(135deg,#0ea5e9,#38bdf8);
+      color:#fff;
+    }
+    #bottomTabBar .bottom-sub-row{
+      position:absolute;
+      bottom:calc(100% + 6px);
+      left:50%;
+      transform:translateX(-50%);
+      display:flex;
+      gap:6px;
+      justify-content:center;
+      flex-wrap:wrap;
+      background:rgba(15,23,42,0.95);
+      border-radius:18px;
+      border:1px solid rgba(255,255,255,0.3);
+      padding:8px 12px;
+      box-shadow:0 -12px 24px rgba(15,23,42,0.45);
+      pointer-events:auto;
+    }
+    #bottomTabBar .bottom-sub-tab{
+      display:flex;
+      align-items:center;
+      gap:6px;
+      padding:6px 10px;
+      border-radius:14px;
+      border:1px solid transparent;
+      background:rgba(255,255,255,0.08);
+      color:#cbd5f5;
+      font-size:11px;
+      font-weight:700;
+      cursor:pointer;
+      transition:border 0.2s,background 0.2s,color 0.2s;
+    }
+    #bottomTabBar .bottom-sub-tab:hover{
+      border-color:#38bdf8;
+      background:rgba(15,23,42,0.6);
+      color:#fff;
+    }
+    #bottomTabBar .bottom-sub-tab:nth-child(1)::before{content:"N";font-size:10px;}
+    #bottomTabBar .bottom-sub-tab:nth-child(2)::before{content:"T";font-size:10px;}
+    #bottomTabBar .bottom-sub-tab:nth-child(3)::before{content:"$";font-size:10px;}
+    #bottomTabBar .bottom-sub-tab:nth-child(4)::before{content:"∆";font-size:10px;}
+    #bottomTabBar .bottom-sub-row-wrap{
+      position:absolute;
+      bottom:calc(100% + 10px);
+      left:50%;
+      transform:translateX(-50%);
+      pointer-events:auto;
+      width:100%;
+      max-width:760px;
+    }
+    #bottomTabBar .bottom-primary-row{
+      position:relative;
+      z-index:2;
+    }
+
     .k{ color:#64748b; font-weight:900; }
     .v{ color:#0f172a; font-weight:1000; }
 

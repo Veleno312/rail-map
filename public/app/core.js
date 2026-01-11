@@ -1750,7 +1750,7 @@ function getCountryUnlockRule(id){
 // ======================
 // State
 // ======================
-let state = {
+var state = {
     clock: { tMin: 8*60, running: true, speed: 60, lastTs: null, rafId: 0 },
   nodes: new Map(),   // id -> {id,name,lat,lon,kind,population,production,clusterId?}
   cities: [],

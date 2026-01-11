@@ -60,7 +60,6 @@ export function calculateAccessibility(region, networkState, travelTimes) {
   };
   
   let accessibilitySum = 0;
-  let opportunityCount = 0;
   
   // Calculate accessibility to all other regions
   for (const otherRegionId in networkState.regions) {
@@ -78,7 +77,6 @@ export function calculateAccessibility(region, networkState, travelTimes) {
                      Math.pow(cost + 1, gravityParams.gamma);
     
     accessibilitySum += opportunity / impedance;
-    opportunityCount++;
   }
   
   // Normalize to 0-1 scale

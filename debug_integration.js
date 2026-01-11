@@ -107,7 +107,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (window.state && window.simCoreStep) {
           console.log('Testing simulation state cloning...');
           var testInput = { seed: 123 };
-          var result = window.simCoreStep(window.state, testInput);
+          window.simCoreStep(window.state, testInput);
           console.log('✅ Simulation step works');
         }
       } catch (error) {
@@ -120,7 +120,7 @@ document.addEventListener('DOMContentLoaded', function() {
           for (var key in window.state) {
             try {
               JSON.stringify(window.state[key]);
-            } catch (e) {
+            } catch {
               console.warn('Problematic state property:', key, typeof window.state[key]);
             }
           }
