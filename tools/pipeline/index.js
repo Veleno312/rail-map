@@ -9,7 +9,7 @@ import { latLonToTile, formatTileId, tileNeighbors } from "../tile_scheme.js";
 
 const exec = promisify(execCb);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, "..");
+const PROJECT_ROOT = path.resolve(__dirname, "..", "..");
 const OFFLINE_DIR = path.join(PROJECT_ROOT, "data", "offline");
 const STAGING_DIR = path.join(OFFLINE_DIR, "staging");
 const TILE_DIR = path.join(OFFLINE_DIR, "tiles");
