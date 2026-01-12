@@ -6217,6 +6217,63 @@ const lineStatusBlockHtml = `
 
   
 
+const mapLayers = state.mapLayers || {};
+const totalUnderserved = Array.from(state.underservedByCell?.values() || []).reduce((sum, v) => sum + (Number(v) || 0), 0);
+const underservedEntries = Array.from(state.underservedByCell?.entries() || []);
+underservedEntries.sort((a,b) => (Number(b[1] || 0)) - (Number(a[1] || 0)));
+const topCellsList = underservedEntries.slice(0,5).map(([cellId, value]) => {
+  const cell = state.cells?.get(cellId);
+  const label = cell?.name || cellId;
+  return `${escapeHtml(label)} (${fmtNum(Math.round(value || 0))})`;
+}).join(", ") || "n/a";
+const stationLoadEntries = Array.from(state.stationLoad?.entries() || []);
+stationLoadEntries.sort((a,b) => (Number(b[1]?.loadRatio || 0)) - (Number(a[1]?.loadRatio || 0)));
+const topStationsList = stationLoadEntries.slice(0,5).map(([stationId, load]) => {
+  const station = state.stations?.get(String(stationId));
+  const label = station?.name || stationId || "unknown";
+  const ratio = Math.round((load?.loadRatio || 0) * 100);
+  return `${escapeHtml(label)} (${ratio}% load)`;
+}).join(", ") || "n/a";
+const overlaySectionHtml = `
+      <div class="section">
+        <div style="font-weight:1000;color:#0f172a;margin-bottom:8px;">Demand overlays & view mode</div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px;">
+          <label style="font-weight:900;color:#334155;display:flex;gap:6px;align-items:center;">
+            <input type="checkbox" ${mapLayers.showComarcaBorders ? "checked" : ""} onchange="setMapLayerOption('showComarcaBorders', this.checked)">
+            Comarca borders
+          </label>
+          <label style="font-weight:900;color:#334155;display:flex;gap:6px;align-items:center;">
+            <input type="checkbox" ${mapLayers.showDemandHeat ? "checked" : ""} onchange="setMapLayerOption('showDemandHeat', this.checked)">
+            Demand heat
+          </label>
+          <label style="font-weight:900;color:#334155;display:flex;gap:6px;align-items:center;">
+            <input type="checkbox" ${mapLayers.showUnderserved ? "checked" : ""} onchange="setMapLayerOption('showUnderserved', this.checked)">
+            Underserved heat
+          </label>
+          <label style="font-weight:900;color:#334155;display:flex;gap:6px;align-items:center;">
+            <input type="checkbox" ${mapLayers.showCatchments ? "checked" : ""} onchange="setMapLayerOption('showCatchments', this.checked)">
+            Catchment lines
+          </label>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <button class="btn secondary" style="width:auto;padding:8px 12px;margin-top:0;" onclick="recomputeDemandModel()">Recompute demand</button>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <div class="k">View mode</div>
+            <select class="field" onchange="setViewMode(this.value)" style="min-width:160px;">
+              <option value="stations" ${state.viewMode==="stations" ? "selected" : ""}>Stations</option>
+              <option value="cities" ${state.viewMode==="cities" ? "selected" : ""}>Cities</option>
+              <option value="clusters" ${state.viewMode==="clusters" ? "selected" : ""}>Clusters</option>
+            </select>
+          </div>
+        </div>
+        <div class="hint" style="margin-top:10px;line-height:1.5;">
+          <div>${kv("Total underserved", fmtNum(Math.round(totalUnderserved)))}</div>
+          <div>${kv("Top underserved cells", topCellsList)}</div>
+          <div>${kv("Top overloaded stations", topStationsList)}</div>
+        </div>
+      </div>
+`;
+
 const networkTabHtml = (showPrimaryPanel && state.activeTab==="network")
 
   ? (isPopulationTab ? `
@@ -6279,6 +6336,8 @@ const networkTabHtml = (showPrimaryPanel && state.activeTab==="network")
 
 
 
+      ${overlaySectionHtml}
+
         <div class="section">
 
           <div style="font-weight:1000;color:#0f172a;margin-bottom:8px;">Active line status</div>
@@ -6303,7 +6362,7 @@ const networkTabHtml = (showPrimaryPanel && state.activeTab==="network")
 
     
 
-` : (productionTabHtml + lineStatusBlockHtml))
+` : (overlaySectionHtml + productionTabHtml + lineStatusBlockHtml))
 
   : "";
 

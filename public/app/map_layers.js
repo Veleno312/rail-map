@@ -5,15 +5,19 @@
 let map;
 let baseTileLayer = null;
 const layers = {
-clusters: L.layerGroup(),
-cities: L.layerGroup(),
-tracks: L.layerGroup(),
-stationOverlay: L.layerGroup(), // NEW: busy station rings
-trackLabels: L.layerGroup(),
-lines: L.layerGroup(),
-trains: L.layerGroup(),
-flowOverlay: L.layerGroup(), // <-- NEW: animated trains live here
-borders: L.layerGroup(),
+  clusters: L.layerGroup(),
+  cities: L.layerGroup(),
+  tracks: L.layerGroup(),
+  stationOverlay: L.layerGroup(), // NEW: busy station rings
+  trackLabels: L.layerGroup(),
+  lines: L.layerGroup(),
+  trains: L.layerGroup(),
+  flowOverlay: L.layerGroup(), // <-- NEW: animated trains live here
+  comarcaBorders: L.layerGroup(),
+  demandHeat: L.layerGroup(),
+  catchments: L.layerGroup(),
+  underserved: L.layerGroup(),
+  borders: L.layerGroup(),
 };
 
 function initMap(){
@@ -40,6 +44,10 @@ map.on("zoomend", () => {
   layers.lines.addTo(map);
 layers.trains.addTo(map);
 layers.flowOverlay.addTo(map);
+  layers.comarcaBorders.addTo(map);
+  layers.demandHeat.addTo(map);
+  layers.catchments.addTo(map);
+  layers.underserved.addTo(map);
   layers.borders.addTo(map);
 
 
@@ -370,7 +378,20 @@ for (const id of nodeIds){
 if (max <= 0) return;
 
 for (const id of nodeIds){
-  const n = state.nodes.get(String(id));
+  const nodeId = String(id || "");
+  let n = state.nodes.get(nodeId);
+  if (!n) {
+    const station = state.stations.get(nodeId);
+    if (station && Number.isFinite(station.lat) && Number.isFinite(station.lon)) {
+      n = {
+        id: station.id,
+        name: station.name,
+        lat: station.lat,
+        lon: station.lon,
+        kind: "station"
+      };
+    }
+  }
   if (!n) continue;
 
   const v = intensity.get(String(id)) || 0;
@@ -426,20 +447,33 @@ for (const id of nodeIds){
 
 function overlayNodeIds(){
   if (!map) return [];
+  const mode = state.viewMode || "stations";
+  if (mode === "stations" && state.stations && state.stations.size) {
+    return Array.from(state.stations.keys());
+  }
+  if (mode === "clusters") {
+    return Array.from(state.clusters.keys());
+  }
   if (map.getZoom() <= CONFIG.CLUSTER_VIEW_MAX_ZOOM) {
     return Array.from(state.clusters.keys());
   }
   if (Array.isArray(state.visibleCityIds) && state.visibleCityIds.length) {
     return state.visibleCityIds;
   }
-  const fallback = [];
-  for (const node of state.nodes.values()){
-    if (node.kind === "city") {
-      fallback.push(node.id);
-      if (fallback.length >= 1500) break;
+  if (mode === "cities") {
+    const fallback = [];
+    for (const node of state.nodes.values()){
+      if (node.kind === "city") {
+        fallback.push(node.id);
+        if (fallback.length >= 1500) break;
+      }
     }
+    if (fallback.length) return fallback;
   }
-  return fallback;
+  return Array.from(state.nodes.values())
+    .filter(node => node.kind === "city")
+    .slice(0, 1500)
+    .map(node => node.id);
 }
 
 function render_network(){
@@ -454,6 +488,171 @@ function render_overlay(){
   const nodeIds = overlayNodeIds();
   try { renderStationBusyness(nodeIds); } catch (_) {}
   try { if (typeof dynFlow_render === "function") dynFlow_render(); } catch (_) {}
+  try { renderDemandOverlays(); } catch (_) {}
+}
+
+function heatColor(ratio){
+  const clamped = clamp(Number(ratio) || 0, 0, 1);
+  const hue = 200 - clamped * 180;
+  const light = 70 - clamped * 25;
+  return `hsl(${hue}, 78%, ${light}%)`;
+}
+
+function underservedColor(ratio){
+  const clamped = clamp(Number(ratio) || 0, 0, 1);
+  const hue = 120 - clamped * 120;
+  const light = 72 - clamped * 32;
+  return `hsl(${hue}, 82%, ${light}%)`;
+}
+
+function catchmentColor(seed){
+  const hash = hash01(seed || "");
+  const hue = Math.round((hash || 0) * 360);
+  return `hsl(${hue}, 68%, 55%)`;
+}
+
+function renderComarcaBorders(){
+  layers.comarcaBorders.clearLayers();
+  if (!map || !state.mapLayers?.showComarcaBorders) return;
+  if (!state.cells || state.cells.size === 0) return;
+  const features = [];
+  for (const cell of state.cells.values()){
+    if (!cell?.geometry) continue;
+    features.push({
+      type: "Feature",
+      geometry: cell.geometry,
+      properties: { id: cell.id, name: cell.name }
+    });
+  }
+  if (!features.length) return;
+  L.geoJSON({ type: "FeatureCollection", features }, {
+    style: {
+      color: "#94a3b8",
+      weight: 1.2,
+      opacity: 0.8,
+      fillOpacity: 0,
+      dashArray: "4,6"
+    },
+    interactive: false
+  }).addTo(layers.comarcaBorders);
+}
+
+function renderDemandHeatOverlay(){
+  layers.demandHeat.clearLayers();
+  if (!map || !state.mapLayers?.showDemandHeat) return;
+  if (!state.cells || state.cells.size === 0) return;
+  let maxPop = 1;
+  for (const cell of state.cells.values()){
+    if (!cell) continue;
+    maxPop = Math.max(maxPop, Number(cell.pop || 0));
+  }
+  const features = [];
+  for (const cell of state.cells.values()){
+    if (!cell?.geometry) continue;
+    features.push({
+      type: "Feature",
+      geometry: cell.geometry,
+      properties: {
+        id: cell.id,
+        name: cell.name,
+        ratio: maxPop ? (Number(cell.pop || 0) / maxPop) : 0
+      }
+    });
+  }
+  if (!features.length) return;
+  L.geoJSON({ type: "FeatureCollection", features }, {
+    style: (feature) => {
+      const ratio = Number(feature?.properties?.ratio || 0);
+      return {
+        fillColor: heatColor(ratio),
+        fillOpacity: 0.45,
+        color: "#0f172a",
+        opacity: 0.5,
+        weight: 0.5
+      };
+    },
+    interactive: false
+  }).addTo(layers.demandHeat);
+}
+
+function renderUnderservedOverlay(){
+  layers.underserved.clearLayers();
+  if (!map || !state.mapLayers?.showUnderserved) return;
+  if (!state.cells || state.cells.size === 0) return;
+  if (!state.underservedByCell || state.underservedByCell.size === 0) return;
+  let max = 1;
+  for (const value of state.underservedByCell.values()){
+    max = Math.max(max, Number(value || 0));
+  }
+  const features = [];
+  for (const cell of state.cells.values()){
+    if (!cell?.geometry) continue;
+    const underst = Number(state.underservedByCell.get(cell.id) || 0);
+    const ratio = cell.pop ? (underst / (cell.pop || 1)) : 0;
+    features.push({
+      type: "Feature",
+      geometry: cell.geometry,
+      properties: {
+        id: cell.id,
+        name: cell.name,
+        ratio: clamp(ratio, 0, 1),
+        value: underst
+      }
+    });
+  }
+  if (!features.length) return;
+  L.geoJSON({ type: "FeatureCollection", features }, {
+    style: (feature) => {
+      const ratio = Number(feature?.properties?.ratio || 0);
+      return {
+        fillColor: underservedColor(ratio),
+        fillOpacity: 0.55,
+        color: "#0f172a",
+        opacity: 0.45,
+        weight: 0.6
+      };
+    },
+    interactive: false
+  }).addTo(layers.underserved);
+}
+
+function renderCatchmentsOverlay(){
+  layers.catchments.clearLayers();
+  if (!map || !state.mapLayers?.showCatchments) return;
+  if (!state.catchmentByCell || state.catchmentByCell.size === 0) return;
+  for (const [cellId, stationId] of state.catchmentByCell.entries()){
+    const cell = state.cells?.get(cellId);
+    const station = state.stations?.get(String(stationId));
+    if (!cell || !station) continue;
+    if (!Number.isFinite(cell.centroidLat) || !Number.isFinite(cell.centroidLon)) continue;
+    if (!Number.isFinite(station.lat) || !Number.isFinite(station.lon)) continue;
+    const color = catchmentColor(stationId);
+    L.polyline([
+      [cell.centroidLat, cell.centroidLon],
+      [station.lat, station.lon]
+    ], {
+      color,
+      weight: 1.8,
+      opacity: 0.85,
+      interactive: false
+    }).addTo(layers.catchments);
+    L.circleMarker([cell.centroidLat, cell.centroidLon], {
+      radius: 3,
+      color: "#fff",
+      weight: 1,
+      fillColor: color,
+      fillOpacity: 0.85,
+      interactive: false
+    }).addTo(layers.catchments);
+  }
+}
+
+function renderDemandOverlays(){
+  if (!map) return;
+  renderComarcaBorders();
+  renderDemandHeatOverlay();
+  renderUnderservedOverlay();
+  renderCatchmentsOverlay();
 }
 
 function renderClusterMarkers(){
@@ -639,3 +838,8 @@ function updateClusterBar(){
 
 window.render_network = render_network;
 window.render_overlay = render_overlay;
+window.renderDemandOverlays = renderDemandOverlays;
+window.renderComarcaBorders = renderComarcaBorders;
+window.renderDemandHeatOverlay = renderDemandHeatOverlay;
+window.renderUnderservedOverlay = renderUnderservedOverlay;
+window.renderCatchmentsOverlay = renderCatchmentsOverlay;

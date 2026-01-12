@@ -104,6 +104,35 @@ function applyCountryView(spec, cities){
   }
 }
 
+function refreshStationFoundation(){
+  if (typeof buildStationsFromCities === "function") {
+    buildStationsFromCities(state.cities || [], { target: state.stations });
+  }
+  if (typeof migrateLineStopsToStations === "function") {
+    migrateLineStopsToStations(state.lines);
+  }
+  if (typeof loadComarcasGeoJSON === "function" && (!state.cells || state.cells.size === 0)) {
+    loadComarcasGeoJSON("./comarcas.geojson")
+      .then(geo => {
+        if (geo) {
+          state.cellsGeoJSON = geo;
+        }
+        if (geo && typeof buildCellsFromGeoJSON === "function") {
+          state.cells = buildCellsFromGeoJSON(geo, { cities: state.cities });
+        }
+      })
+      .then(() => {
+        if (typeof recomputeDemandModel === "function") recomputeDemandModel();
+      })
+      .catch((err) => {
+        console.warn("Demand foundation initialization failed", err);
+        if (typeof recomputeDemandModel === "function") recomputeDemandModel();
+      });
+    return;
+  }
+  if (typeof recomputeDemandModel === "function") recomputeDemandModel();
+}
+
 function resetNetworkState(){
   try {
     layers.tracks?.clearLayers?.();
@@ -200,7 +229,10 @@ function exportStateSnapshot(){
     productionMacro: state.production?.macro || null,
     productionUrl: state.production?.url || null,
     osmRailImportLast: state.osmRailImportLast || null,
-    osmRailImported: !!state.osmRailImported
+    osmRailImported: !!state.osmRailImported,
+    viewMode: state.viewMode,
+    mapLayers: state.mapLayers,
+    simConfig: state.simConfig
   };
 }
 
@@ -218,6 +250,9 @@ function applyStateSnapshot(snapshot){
   state.revenue = snapshot.revenue ?? state.revenue;
   state.costs = snapshot.costs ?? state.costs;
   state.profit = snapshot.profit ?? state.profit;
+  state.viewMode = snapshot.viewMode || state.viewMode;
+  state.mapLayers = snapshot.mapLayers || state.mapLayers;
+  state.simConfig = snapshot.simConfig || state.simConfig;
   state.activeClusterId = snapshot.activeClusterId ?? null;
   state.activeTab = snapshot.activeTab ?? state.activeTab;
   state.primaryTab = snapshot.primaryTab ?? state.primaryTab;
@@ -237,6 +272,7 @@ function applyStateSnapshot(snapshot){
 
   buildClusters(state.cities || []);
   renderClusterMarkers();
+  refreshStationFoundation();
 
   resetNetworkState();
 
@@ -351,6 +387,7 @@ async function loadCountry(countryId, opts = {}){
     if (typeof setLoadingStatus === "function") setLoadingStatus("Building clusters...");
     buildClusters(state.cities);
     renderClusterMarkers();
+    refreshStationFoundation();
 
     let border = null;
     const borderUrl = resolveOverride(spec, overrides, "borderUrl") || spec.borderUrl;
@@ -502,6 +539,7 @@ async function boot(){
   if (typeof setLoadingStatus === "function") setLoadingStatus("Building clusters...");
   buildClusters(state.cities);
   renderClusterMarkers();
+  refreshStationFoundation();
   applyCountryView(spec, state.cities);
 
   let loadedFromSave = false;
@@ -635,6 +673,29 @@ dynFlow_render();
 window.setDynamicsEnabled = setDynamicsEnabled;
 window.setDynamicsOverlay = setDynamicsOverlay;
 window.setDynamicsMode = setDynamicsMode;
+
+function setMapLayerOption(key, on){
+  if (!state.mapLayers) state.mapLayers = {};
+  state.mapLayers[key] = !!on;
+  if (typeof renderDemandOverlays === "function") {
+    try { renderDemandOverlays(); } catch (_) {}
+  }
+  if (typeof render_overlay === "function") {
+    try { render_overlay(); } catch (_) {}
+  }
+  updateUI();
+}
+
+function setViewMode(mode){
+  state.viewMode = mode || "stations";
+  if (typeof render_overlay === "function") {
+    try { render_overlay(); } catch (_) {}
+  }
+  updateUI();
+}
+
+window.setMapLayerOption = setMapLayerOption;
+window.setViewMode = setViewMode;
 
 function showLoading(msg){
   const el = document.getElementById("loadingOverlay");

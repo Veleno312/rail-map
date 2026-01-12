@@ -1838,6 +1838,35 @@ flowSummary: {
 // line building toggle
   lineBuildMode: true,
   trackBuildAction: "build",
+
+  viewMode: "stations",
+  mapLayers: {
+    showStations: true,
+    showTracks: true,
+    showLines: true,
+    showTrains: true,
+    showComarcaBorders: false,
+    showDemandHeat: false,
+    showCatchments: false,
+    showUnderserved: false
+  },
+  simConfig: {
+    accessSpeedKmh: 50,
+    maxAccessKm: 60,
+    gravityAlpha: 2.2,
+    railBeta: 0.6,
+    candidateStationsK: 12,
+    congestionGamma: 2.0,
+    serviceQualityWeight: 0.25,
+    paxFactor: 0.35,
+    freightFactor: 0.08
+  },
+  cells: new Map(),
+  cellsGeoJSON: null,
+  cellToStationAllocation: new Map(),
+  stationLoad: new Map(),
+  underservedByCell: new Map(),
+  catchmentByCell: new Map(),
 };
 
 if (typeof window !== "undefined") {
