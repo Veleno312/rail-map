@@ -395,7 +395,6 @@ async function importOsmRailTracks(opts = {}) {
   const lanes = Number(opts.lanes || 2);
   const didRetry = !!opts._retry;
   const includeNarrow = (typeof opts.includeNarrow === "boolean") ? opts.includeNarrow : true;
-  const useClustersOnly = (typeof opts.useClustersOnly === "boolean") ? opts.useClustersOnly : true;
   const coordPrecision = Number.isFinite(Number(opts.coordPrecision))
     ? Number(opts.coordPrecision)
     : (String(url).includes("adif") ? 5 : 6);
@@ -485,10 +484,11 @@ async function importOsmRailTracks(opts = {}) {
 
     const comp = osm_computeComponents(graph.adj);
 
-    const nodes = Array.from(state.nodes.values());
-  const nodesForTracks = useClustersOnly
-    ? nodes.filter(n => n && n.kind === "cluster")
-    : nodes;
+    const nodesForTracks = Array.from(state.stations.values()).filter(s => s && Number.isFinite(s.lat) && Number.isFinite(s.lon));
+    if (!nodesForTracks.length) {
+      showToast("OSM import: no station nodes available", "warning");
+      return;
+    }
     if (typeof setLoadingStatus === "function") setLoadingStatus("Importing OSM: mapping nodes to rails...");
     const mapped = [];
     for (const n of nodesForTracks) {
@@ -557,20 +557,6 @@ async function importOsmRailTracks(opts = {}) {
       }
     }
 
-    // Local city-to-cluster links for zoomed-in neighborhoods
-    if (useClustersOnly) {
-      for (const n of nodes) {
-        if (!n || n.kind !== "city") continue;
-        const clId = n.clusterId;
-        if (!clId || !state.nodes.has(clId)) continue;
-        if (typeof track_hasAnyState === "function" && track_hasAnyState(n.id, clId)) continue;
-        if (typeof addTrack === "function") {
-          addTrack(n.id, clId, 1, { silent: true, status: "built" });
-          added += 1;
-        }
-      }
-    }
-
     if (added > 0) state.osmRailImported = true;
     state.osmRailImportLast = {
       nodes: nodesForTracks.length,
@@ -578,7 +564,7 @@ async function importOsmRailTracks(opts = {}) {
       vertices: graph.vertices.length,
       added,
       source: url,
-      scope: useClustersOnly ? "cluster+local" : "all"
+      scope: "stations"
     };
     console.info("OSM import summary:", state.osmRailImportLast);
     renderLines();
@@ -597,7 +583,6 @@ async function importOsmRailTracks(opts = {}) {
           maxConnKm: Math.max(maxConnKm, 600),
           linksPerNode: Math.max(linksPerNode, 6),
           includeNarrow: true,
-          useClustersOnly,
           _retry: true
         });
       }

@@ -1756,7 +1756,9 @@ var state = {
   cities: [],
   clusters: new Map(),// clusterId -> {id, hubCityId, hubName, lat, lon, population, cityIds:Set, bounds, totalProduction, biggestProduction}
   stations: new Map(), // nodeId -> { level, platforms, amenities, retail }
-  tracks: new Map(),  // trackId -> {id, from, to, lanes, cost, _layer, _label}
+    tracks: new Map(),  // trackId -> {id, from, to, lanes, cost, _layer, _label}
+    railNodes: new Map(), // nodeId -> { id, lat, lon }
+    railLinks: new Map(), // linkId -> raw link metadata
   construction: { queue: [], active: [], history: [] },
   stationPressure: new Map(), // nodeId -> { demand, supply, pressurePct }
   lines: new Map(),   // lineId -> {id,name,type,color,stops:[],circular, frequencyPerDay, vehicleCapacity, speedKmh}
@@ -1835,6 +1837,7 @@ flowSummary: {
   selectedNode: null,
 
   selectedNodeId: null,
+  selectedCellId: null,
 // line building toggle
   lineBuildMode: true,
   trackBuildAction: "build",
@@ -1842,14 +1845,28 @@ flowSummary: {
   viewMode: "stations",
   mapLayers: {
     showStations: true,
+    showCities: false,
+    showClusters: false,
     showTracks: true,
     showLines: true,
     showTrains: true,
     showComarcaBorders: false,
     showDemandHeat: false,
     showCatchments: false,
-    showUnderserved: false
+    showUnderserved: false,
+    showRealInfra: true,
+    highlightUnusedStations: false
   },
+  stationPlacementMode: false,
+  stationPlacementDraft: null,
+  stationFilterTerm: "",
+  debug: { perf: false },
+  dirty: {
+    demand: false,
+    network: false
+  },
+  customStations: new Map(),
+  disabledStations: new Set(),
   simConfig: {
     accessSpeedKmh: 50,
     maxAccessKm: 60,
@@ -1867,6 +1884,16 @@ flowSummary: {
   stationLoad: new Map(),
   underservedByCell: new Map(),
   catchmentByCell: new Map(),
+  cityStationAllocation: new Map(),
+  stationCityAllocations: new Map(),
+  realInfra: {
+    success: false,
+    stationsLoaded: false,
+    tracksLoaded: false,
+    stationsUrl: null,
+    edgesUrl: null
+  },
+  simNodeMode: "cities",
 };
 
 if (typeof window !== "undefined") {

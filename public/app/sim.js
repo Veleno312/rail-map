@@ -919,6 +919,7 @@ function clearAllTracks(){
   layers.trackLabels.clearLayers();
   state.tracks.clear();
   state.pendingTrackNode = null;
+  if (typeof markNetworkDirty === "function") markNetworkDirty();
   renderLines();
   updateUI();
   showToast("Cleared all tracks", "warning");

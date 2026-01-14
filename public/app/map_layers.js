@@ -8,6 +8,8 @@ const layers = {
   clusters: L.layerGroup(),
   cities: L.layerGroup(),
   tracks: L.layerGroup(),
+  railInfra: L.layerGroup(),
+  stationMarkers: L.layerGroup(),
   stationOverlay: L.layerGroup(), // NEW: busy station rings
   trackLabels: L.layerGroup(),
   lines: L.layerGroup(),
@@ -19,6 +21,95 @@ const layers = {
   underserved: L.layerGroup(),
   borders: L.layerGroup(),
 };
+
+function computeStationLineCounts(){
+  const counts = new Map();
+  if (!state || !state.lines) return counts;
+  for (const line of state.lines.values()){
+    if (!line || !Array.isArray(line.stops)) continue;
+    for (const stop of line.stops){
+      const id = String(stop || "").trim();
+      if (!id) continue;
+      counts.set(id, (counts.get(id) || 0) + 1);
+    }
+  }
+  return counts;
+}
+
+window.computeStationLineCounts = computeStationLineCounts;
+
+const DEMAND_DEBOUNCE_MS = Number(window.DEMAND_DEBOUNCE_MS ?? 500);
+let overlayRenderQueued = false;
+let demandRecomputeTimer = null;
+
+function perfLog(label, start){
+  if (!state?.debug?.perf || typeof start !== "number") return;
+  const delta = Math.max(0, performance.now() - start);
+  console.info(`[perf] ${label}: ${delta.toFixed(1)}ms`);
+}
+
+function runScheduledDemandRecompute({ force = false, source = "auto" } = {}){
+  if (!state?.dirty?.demand && !force) return;
+  if (demandRecomputeTimer) {
+    clearTimeout(demandRecomputeTimer);
+    demandRecomputeTimer = null;
+  }
+  const start = state.debug?.perf ? performance.now() : null;
+  if (state.dirty) state.dirty.demand = false;
+  if (typeof recomputeDemandModel === "function") {
+    try {
+      recomputeDemandModel();
+    } catch (err) {
+      console.warn("Demand recompute failed", err);
+    }
+  }
+  if (start) perfLog(`recomputeDemandModel (${source})`, start);
+}
+
+function scheduleDemandRecompute(){
+  if (!state) return;
+  state.dirty = state.dirty || {};
+  state.dirty.demand = true;
+  if (demandRecomputeTimer) clearTimeout(demandRecomputeTimer);
+  demandRecomputeTimer = setTimeout(() => {
+    demandRecomputeTimer = null;
+    runScheduledDemandRecompute({ source: "debounce" });
+  }, Math.max(0, DEMAND_DEBOUNCE_MS));
+  if (typeof resetStationDistanceCache === "function") {
+    try { resetStationDistanceCache(); } catch (_) {}
+  }
+}
+
+function markDemandDirty(){
+  scheduleDemandRecompute();
+}
+
+function markNetworkDirty(){
+  if (!state) return;
+  state.dirty = state.dirty || {};
+  state.dirty.network = true;
+  if (typeof invalidateRoutingCache === "function") {
+    try { invalidateRoutingCache(); } catch (_) {}
+  }
+  if (typeof resetStationDistanceCache === "function") {
+    try { resetStationDistanceCache(); } catch (_) {}
+  }
+  scheduleDemandRecompute();
+}
+
+function applyPendingChanges({ showToastMsg = true } = {}){
+  const pending = Boolean(state?.dirty?.demand || state?.dirty?.network);
+  runScheduledDemandRecompute({ force: true, source: "commit" });
+  if (state.dirty) state.dirty.network = false;
+  if (pending && showToastMsg && typeof showToast === "function") {
+    showToast("Pending changes applied", "success");
+  }
+}
+
+window.markDemandDirty = markDemandDirty;
+window.markNetworkDirty = markNetworkDirty;
+window.runScheduledDemandRecompute = runScheduledDemandRecompute;
+window.applyPendingChanges = applyPendingChanges;
 
 function initMap(){
   map = L.map("map").setView(CONFIG.SPAIN_VIEW.center, CONFIG.SPAIN_VIEW.zoom);
@@ -36,9 +127,9 @@ map.on("zoomend", () => {
     attribution: "© OpenStreetMap contributors"
   }).addTo(map);
 
-  layers.clusters.addTo(map);
-  layers.cities.addTo(map);
   layers.tracks.addTo(map);
+  layers.railInfra.addTo(map);
+  layers.stationMarkers.addTo(map);
   layers.stationOverlay.addTo(map); // NEW
   layers.trackLabels.addTo(map);
   layers.lines.addTo(map);
@@ -56,6 +147,32 @@ layers.flowOverlay.addTo(map);
     if (state.activeClusterId && map.getZoom() <= CONFIG.CLUSTER_VIEW_MAX_ZOOM) {
       leaveCluster(true);
     }
+  });
+
+  map.on("click", (event) => {
+    if (!state.stationPlacementMode) return;
+    if (typeof registerCustomStation !== "function") return;
+    const lat = event.latlng.lat;
+    const lon = event.latlng.lng;
+    const draft = state.stationPlacementDraft || {};
+    const summary = (typeof stationPlacementPopSummary === "function")
+      ? stationPlacementPopSummary(lat, lon)
+      : null;
+    showStationPlacementPreview(summary, () => {
+      const station = registerCustomStation({
+        name: draft.name || `Custom Station ${Date.now().toString(36)}`,
+        lat,
+        lon,
+        population: Number(draft.population || 0),
+        source: "custom"
+      });
+      state.stationPlacementMode = false;
+      state.stationPlacementDraft = null;
+      hideStationPlacementPreview();
+      finalizeStationPlacement(station);
+    }, () => {
+      hideStationPlacementPreview();
+    });
   });
 
   map_applyTheme(state.mapTheme || "default");
@@ -105,6 +222,88 @@ function renderCountryBorder(){
 }
 
 window.renderCountryBorder = renderCountryBorder;
+
+let stationPreviewEl = null;
+
+function ensureStationPlacementPreviewElement(){
+  if (stationPreviewEl) return stationPreviewEl;
+  stationPreviewEl = document.createElement("div");
+  stationPreviewEl.id = "stationPlacementPreview";
+  Object.assign(stationPreviewEl.style, {
+    position: "fixed",
+    bottom: "20px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "rgba(15,23,42,0.95)",
+    color: "#fff",
+    padding: "18px",
+    borderRadius: "14px",
+    boxShadow: "0 18px 40px rgba(0,0,0,0.35)",
+    zIndex: "1400",
+    fontFamily: "system-ui, sans-serif",
+    width: "360px",
+    display: "none",
+    lineHeight: "1.5"
+  });
+  document.body.appendChild(stationPreviewEl);
+  return stationPreviewEl;
+}
+
+function hideStationPlacementPreview(){
+  if (!stationPreviewEl) return;
+  stationPreviewEl.style.display = "none";
+}
+
+function stationSummaryHtml(summary){
+  if (!summary) return "<div class=\"hint\">Live population preview unavailable.</div>";
+  const radii = Object.keys(summary.totals || {});
+  const lines = radii.map(radius => {
+    const value = summary.totals[radius] || 0;
+    return `<div style="display:flex;justify-content:space-between;font-size:13px;">${radius} km: <b>${fmtNum(Math.round(value))}</b></div>`;
+  }).join("");
+  const nearest = summary.nearest;
+  const nearestHtml = nearest
+    ? `<div style="margin-top:6px;font-size:12px;">Nearest station: ${escapeHtml(nearest.station?.name || nearest.station?.id || "unknown")} (${nearest.distanceKm.toFixed(1)} km)</div>`
+    : "";
+  return `
+    <div style="font-weight:900;font-size:15px;margin-bottom:6px;">Population reach</div>
+    ${lines}
+    ${nearestHtml}
+  `;
+}
+
+function showStationPlacementPreview(summary, onConfirm, onCancel){
+  const el = ensureStationPlacementPreviewElement();
+  el.innerHTML = `
+    ${stationSummaryHtml(summary)}
+    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+      <button class="btn secondary" style="padding:6px 14px;font-size:13px;" data-action="cancel">Cancel</button>
+      <button class="btn" style="padding:6px 14px;font-size:13px;" data-action="confirm">Place station</button>
+    </div>
+  `;
+  const confirmBtn = el.querySelector("[data-action=confirm]");
+  const cancelBtn = el.querySelector("[data-action=cancel]");
+  confirmBtn.onclick = () => {
+    hideStationPlacementPreview();
+    if (typeof onConfirm === "function") onConfirm();
+  };
+  cancelBtn.onclick = () => {
+    hideStationPlacementPreview();
+    if (typeof onCancel === "function") onCancel();
+  };
+  el.style.display = "block";
+}
+
+function finalizeStationPlacement(station){
+  if (station) {
+    if (typeof populateNodesWithStations === "function") populateNodesWithStations();
+    if (typeof markDemandDirty === "function") markDemandDirty();
+    if (typeof showToast === "function") showToast(`Placed ${station.name}`, "success");
+  } else if (typeof showToast === "function") {
+    showToast("Station placement failed", "warning");
+  }
+  if (typeof updateUI === "function") updateUI();
+}
 
 // ======================
 // Production proxy
@@ -445,35 +644,119 @@ for (const id of nodeIds){
 
 
 
+function renderRealInfrastructureOverlay(){
+  layers.railInfra.clearLayers();
+  if (!map || !state.mapLayers?.showRealInfra) return;
+  if (!state.railLinks || !state.railNodes) return;
+  const zoom = map.getZoom();
+  if (zoom < 5) return;
+  const sampleStep = zoom < 6 ? 5 : zoom < 7 ? 3 : 1;
+  const style = {
+    color: "#22d3ee",
+    weight: zoom >= 9 ? 2.6 : 1.8,
+    opacity: zoom >= 7 ? 0.6 : 0.35,
+    interactive: false,
+    pane: "stationPane"
+  };
+
+  const nodes = state.railNodes;
+  const stations = state.stations || new Map();
+  const resolveCoord = (id) => {
+    const node = nodes.get(String(id));
+    if (node && Number.isFinite(Number(node?.lat)) && Number.isFinite(Number(node?.lon))) {
+      return [Number(node.lat), Number(node.lon)];
+    }
+    const station = stations.get(String(id));
+    if (station && Number.isFinite(Number(station?.lat)) && Number.isFinite(Number(station?.lon))) {
+      return [Number(station.lat), Number(station.lon)];
+    }
+    return null;
+  };
+
+  let idx = 0;
+  for (const link of state.railLinks.values()){
+    idx++;
+    if (sampleStep > 1 && (idx % sampleStep) !== 0) continue;
+    if (!link || !link.a || !link.b) continue;
+    const from = resolveCoord(link.a);
+    const to = resolveCoord(link.b);
+    if (!from || !to) continue;
+    L.polyline([from, to], style).addTo(layers.railInfra);
+  }
+}
+
+const MAP_STATION_MARKER_STYLE = {
+  pane: "stationPane",
+  interactive: true
+};
+
+function renderStationMarkers(){
+  layers.stationMarkers.clearLayers();
+  if (!map || !state.mapLayers?.showStations) return;
+  if (!state.stations || !state.stations.size) return;
+
+  const lineCounts = (typeof computeStationLineCounts === "function")
+    ? computeStationLineCounts()
+    : new Map();
+  const highlightUnused = !!state.mapLayers?.highlightUnusedStations;
+
+  for (const station of state.stations.values()){
+    if (!station) continue;
+    const lat = Number(station.lat);
+    const lon = Number(station.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+
+    const linesServed = lineCounts.get(station.id) || 0;
+    const isUnused = highlightUnused && linesServed === 0;
+    const activeColor = station.active ? "#0f172a" : "#475569";
+    const highlightColor = isUnused ? "#f97316" : activeColor;
+
+    const coverageKm = Math.max(0, Number(station.coverageKm ?? (window.STATION_COVERAGE_KM ?? 10)));
+    if (coverageKm > 0) {
+      const circle = L.circle([lat, lon], {
+        radius: coverageKm * 1000,
+        color: station.active ? (isUnused ? "#fbbf24" : "#38bdf8") : "#94a3b8",
+        fillColor: station.active ? (isUnused ? "#fbbf24" : "#38bdf8") : "#94a3b8",
+        fillOpacity: station.active ? 0.08 : 0.04,
+        weight: 1.2,
+        interactive: false,
+        pane: "stationPane"
+      });
+      circle.addTo(layers.stationMarkers);
+    }
+
+    const tooltipHtml = `
+      <div style="font-weight:900;">${escapeHtml(station.name || station.id)}</div>
+      <div style="font-size:11px;">Serves ${fmtNum(Math.round(station.coveredPopulation || 0))} people · ${coverageKm.toFixed(1)} km radius</div>
+      <div style="font-size:11px;">Covering ${fmtNum(Number(station.coveredCities || 0))} cities</div>
+      <div style="font-size:11px;">${linesServed ? `${fmtNum(linesServed)} line${linesServed === 1 ? "" : "s"} serve this station` : "Unused (no lines)"}${isUnused ? " · highlighted" : ""}</div>
+    `;
+
+    const marker = L.circleMarker([lat, lon], {
+      radius: 6,
+      weight: 2,
+      color: highlightUnused && isUnused ? "#f97316" : highlightColor,
+      fillColor: highlightUnused && isUnused ? "#fdba74" : (station.active ? "#38bdf8" : "#94a3b8"),
+      fillOpacity: 0.95,
+      ...MAP_STATION_MARKER_STYLE
+    });
+    marker.on("click", () => {
+      if (typeof selectNode === "function") selectNode(station.id);
+    });
+    marker.on("dblclick", (e) => {
+      L.DomEvent.stop(e);
+      if (typeof ui_centerOnNodeId === "function") ui_centerOnNodeId(station.id);
+    });
+    marker.on("mouseover", () => showNodeHover?.(station.id, lat, lon));
+    marker.on("mouseout", hideNodeHover);
+    marker.addTo(layers.stationMarkers);
+  }
+}
+
 function overlayNodeIds(){
   if (!map) return [];
-  const mode = state.viewMode || "stations";
-  if (mode === "stations" && state.stations && state.stations.size) {
-    return Array.from(state.stations.keys());
-  }
-  if (mode === "clusters") {
-    return Array.from(state.clusters.keys());
-  }
-  if (map.getZoom() <= CONFIG.CLUSTER_VIEW_MAX_ZOOM) {
-    return Array.from(state.clusters.keys());
-  }
-  if (Array.isArray(state.visibleCityIds) && state.visibleCityIds.length) {
-    return state.visibleCityIds;
-  }
-  if (mode === "cities") {
-    const fallback = [];
-    for (const node of state.nodes.values()){
-      if (node.kind === "city") {
-        fallback.push(node.id);
-        if (fallback.length >= 1500) break;
-      }
-    }
-    if (fallback.length) return fallback;
-  }
-  return Array.from(state.nodes.values())
-    .filter(node => node.kind === "city")
-    .slice(0, 1500)
-    .map(node => node.id);
+  if (state.stations && state.stations.size) return Array.from(state.stations.keys());
+  return [];
 }
 
 function render_network(){
@@ -485,10 +768,19 @@ function render_network(){
 
 function render_overlay(){
   if (!map) return;
-  const nodeIds = overlayNodeIds();
-  try { renderStationBusyness(nodeIds); } catch (_) {}
-  try { if (typeof dynFlow_render === "function") dynFlow_render(); } catch (_) {}
-  try { renderDemandOverlays(); } catch (_) {}
+  if (overlayRenderQueued) return;
+  overlayRenderQueued = true;
+  requestAnimationFrame(() => {
+    overlayRenderQueued = false;
+    if (!map) return;
+    const start = state.debug?.perf ? performance.now() : null;
+    const nodeIds = overlayNodeIds();
+    try { renderStationBusyness(nodeIds); } catch (_) {}
+    try { renderRealInfrastructureOverlay(); } catch (_) {}
+    try { if (typeof dynFlow_render === "function") dynFlow_render(); } catch (_) {}
+    try { renderDemandOverlays(); } catch (_) {}
+    if (start) perfLog("render_overlay", start);
+  });
 }
 
 function heatColor(ratio){
@@ -560,18 +852,35 @@ function renderDemandHeatOverlay(){
     });
   }
   if (!features.length) return;
+  const getHeatStyle = (feature) => {
+    const ratio = Number(feature?.properties?.ratio || 0);
+    const isActive = feature?.properties?.id === state.selectedCellId;
+    return {
+      fillColor: heatColor(ratio),
+      fillOpacity: isActive ? 0.7 : 0.45,
+      color: "#0f172a",
+      opacity: isActive ? 0.9 : 0.55,
+      weight: isActive ? 2 : 0.5
+    };
+  };
   L.geoJSON({ type: "FeatureCollection", features }, {
-    style: (feature) => {
-      const ratio = Number(feature?.properties?.ratio || 0);
-      return {
-        fillColor: heatColor(ratio),
-        fillOpacity: 0.45,
-        color: "#0f172a",
-        opacity: 0.5,
-        weight: 0.5
-      };
+    style: getHeatStyle,
+    interactive: true,
+    onEachFeature: (feature, layer) => {
+      const cellId = feature?.properties?.id;
+      if (!cellId) return;
+      layer.on("click", (event) => {
+        event?.originalEvent?.stopPropagation?.();
+        if (typeof selectDemandCell === "function") selectDemandCell(cellId);
+      });
+      layer.on("mouseover", () => {
+        layer.setStyle({ weight: 1.8, opacity: 0.85 });
+      });
+      layer.on("mouseout", () => {
+        layer.setStyle(getHeatStyle(feature));
+      });
     },
-    interactive: false
+    pane: "overlayPane"
   }).addTo(layers.demandHeat);
 }
 
@@ -656,6 +965,10 @@ function renderDemandOverlays(){
 }
 
 function renderClusterMarkers(){
+  if (!state.mapLayers?.showClusters) {
+    layers.clusters.clearLayers();
+    return;
+  }
   layers.clusters.clearLayers();
 
   for (const cl of state.clusters.values()) {
@@ -691,6 +1004,10 @@ marker.on("mouseout", hideNodeHover);
 }
 
 function renderCityMarkers(cityIds){
+  if (!state.mapLayers?.showCities) {
+    layers.cities.clearLayers();
+    return;
+  }
   layers.cities.clearLayers();
 
   for (const id of cityIds) {
@@ -698,6 +1015,11 @@ function renderCityMarkers(cityIds){
     if (!n || n.kind !== "city") continue;
 
     let m;
+    const cityPop = Math.max(0, Number(n.population || n.pop || n.pob || 0));
+    const tooltipHtml = `
+      <div style="font-weight:900;">${escapeHtml(n.name || n.id)}</div>
+      <div style="font-size:11px;">Population ${fmtNum(Math.round(cityPop))}</div>
+    `;
     if (state.primaryTab === "production") {
       const icon = production_makeNodeIcon(n.id, 14);
       if (icon) {
@@ -756,25 +1078,41 @@ function nearestClusterToView(){
 
 function syncMarkerVisibility(){
   const z = map.getZoom();
+  const showClusters = !!state.mapLayers?.showClusters;
+  const showCities = !!state.mapLayers?.showCities;
 
-  if (z <= CONFIG.CLUSTER_VIEW_MAX_ZOOM) {
-    layers.clusters.addTo(map);
+  if (showClusters && z <= CONFIG.CLUSTER_VIEW_MAX_ZOOM) {
+    if (!map.hasLayer(layers.clusters)) layers.clusters.addTo(map);
+    renderClusterMarkers();
+  } else {
+    layers.clusters.clearLayers();
+    if (map.hasLayer(layers.clusters)) map.removeLayer(layers.clusters);
+  }
+
+  if (showCities) {
+    if (!map.hasLayer(layers.cities)) layers.cities.addTo(map);
+    const b = map.getBounds();
+    const visible = [];
+    for (const n of state.nodes.values()) {
+      if (n.kind !== "city") continue;
+      if (b.contains([n.lat, n.lon])) visible.push(n.id);
+      if (visible.length >= 1500) break;
+    }
+    state.visibleCityIds = visible;
+    renderCityMarkers(visible);
+  } else {
     layers.cities.clearLayers();
-    track_updateVisibility?.();
-    return;
+    if (map.hasLayer(layers.cities)) map.removeLayer(layers.cities);
   }
 
-  layers.clusters.removeFrom(map);
-
-  const b = map.getBounds();
-  const visible = [];
-  for (const n of state.nodes.values()) {
-    if (n.kind !== "city") continue;
-    if (b.contains([n.lat, n.lon])) visible.push(n.id);
-    if (visible.length >= 1500) break;
+  if (state.mapLayers?.showStations) {
+    if (!map.hasLayer(layers.stationMarkers)) layers.stationMarkers.addTo(map);
+    renderStationMarkers();
+  } else {
+    layers.stationMarkers.clearLayers();
+    if (map.hasLayer(layers.stationMarkers)) map.removeLayer(layers.stationMarkers);
   }
-  state.visibleCityIds = visible;
-  renderCityMarkers(visible);
+
   track_updateVisibility?.();
 }
 

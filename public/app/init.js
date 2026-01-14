@@ -104,13 +104,7 @@ function applyCountryView(spec, cities){
   }
 }
 
-function refreshStationFoundation(){
-  if (typeof buildStationsFromCities === "function") {
-    buildStationsFromCities(state.cities || [], { target: state.stations });
-  }
-  if (typeof migrateLineStopsToStations === "function") {
-    migrateLineStopsToStations(state.lines);
-  }
+function ensureCellsAndDemand(){
   if (typeof loadComarcasGeoJSON === "function" && (!state.cells || state.cells.size === 0)) {
     loadComarcasGeoJSON("./comarcas.geojson")
       .then(geo => {
@@ -131,6 +125,220 @@ function refreshStationFoundation(){
     return;
   }
   if (typeof recomputeDemandModel === "function") recomputeDemandModel();
+}
+
+function removeNonStationTracks(){
+  if (!state.tracks || !state.stations) return;
+  for (const [trackId, track] of Array.from(state.tracks.entries())){
+    if (!track) continue;
+    if (!state.stations.has(track.from) || !state.stations.has(track.to)) {
+      try { track_removeVisual?.(track); } catch (_) {}
+      state.tracks.delete(trackId);
+    }
+  }
+}
+
+function populateNodesWithStations(){
+  if (!state.nodes) state.nodes = new Map();
+
+  // Remove any existing station entries so we can rebuild fresh
+  const stationNodeIds = [];
+  for (const [nodeId, node] of state.nodes.entries()) {
+    if (node?.kind === "station") {
+      stationNodeIds.push(nodeId);
+    }
+  }
+  for (const id of stationNodeIds) {
+    state.nodes.delete(id);
+  }
+
+  if (!state.stations || typeof state.stations.values !== "function") return;
+
+  for (const station of state.stations.values()){
+    const lat = Number(station.lat);
+    const lon = Number(station.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+    state.nodes.set(station.id, {
+      id: station.id,
+      name: station.name || station.id,
+      lat,
+      lon,
+      kind: "station",
+      population: Number(station.population || 0),
+      rail_node_id: station.rail_node_id || null,
+      isCustom: station.source === "custom"
+    });
+  }
+
+  if (typeof assignStationPopulationFromCities === "function") {
+    try { assignStationPopulationFromCities(); } catch (_) {}
+  }
+  if (typeof removeNonStationTracks === "function") {
+    try { removeNonStationTracks(); } catch (_) {}
+  }
+}
+
+function applyRealInfrastructureData(payload){
+  if (!payload || payload.source !== "REAL" || !state.stations || !state.tracks) return false;
+
+  const stations = Array.isArray(payload.stations) ? payload.stations : [];
+  const railNodes = Array.isArray(payload.railNodes) ? payload.railNodes : [];
+  const railLinks = Array.isArray(payload.railLinks) ? payload.railLinks : [];
+
+  if (!stations.length || !railLinks.length) return false;
+
+  if (state.stations && typeof state.stations.clear === "function") state.stations.clear();
+  if (state.tracks && typeof state.tracks.clear === "function") state.tracks.clear();
+  if (state.railNodes && typeof state.railNodes.clear === "function") state.railNodes.clear();
+  if (state.railLinks && typeof state.railLinks.clear === "function") state.railLinks.clear();
+
+  for (const station of stations){
+    const id = String(station.id || "").trim();
+    if (!id) continue;
+    state.stations.set(id, {
+      ...station,
+      id,
+      lat: Number(station.lat),
+      lon: Number(station.lon),
+      active: station.active !== false,
+      source: station.source || "public"
+    });
+  }
+
+  for (const node of railNodes){
+    const id = String(node.id || "").trim();
+    if (!id) continue;
+    state.railNodes.set(id, {
+      id,
+      lat: Number(node.lat),
+      lon: Number(node.lon)
+    });
+  }
+
+  for (const link of railLinks){
+    const id = String(link.id || "").trim();
+    if (!id) continue;
+    const from = String(link.a || "");
+    const to = String(link.b || "");
+    if (!from || !to) continue;
+    const lanes = Math.max(1, Number(link.lanes || 1));
+    const distance = Number(link.distance_km ?? link.distanceKm ?? 0);
+    const track = {
+      id,
+      from,
+      to,
+      lanes,
+      distance_km: distance,
+      distanceKm: distance,
+      maxSpeedKmh: Math.max(1, Number(link.max_speed_kmh ?? link.maxSpeedKmh ?? 120)),
+      status: "built",
+      progress: 1,
+      source: "public"
+    };
+    state.tracks.set(id, track);
+    state.railLinks.set(id, { ...link, id });
+  }
+
+  if (typeof applyCustomStations === "function") applyCustomStations();
+  if (typeof reapplyDisabledStations === "function") reapplyDisabledStations();
+
+  populateNodesWithStations();
+
+  if (state.mapLayers) state.mapLayers.showRealInfra = true;
+
+  state.simNodeMode = "stations";
+  state.realInfra = {
+    success: true,
+    stationsLoaded: state.stations.size > 0,
+    tracksLoaded: state.tracks.size > 0,
+    stationsUrl: payload.config?.stationsUrl || null,
+    edgesUrl: payload.config?.railLinksUrl || null
+  };
+
+  if (typeof migrateLineStopsToStations === "function") migrateLineStopsToStations(state.lines);
+  return true;
+}
+
+function applyFallbackStations(){
+  if (state.stations && typeof state.stations.clear === "function") {
+    state.stations.clear();
+  }
+  if (state.tracks && typeof state.tracks.clear === "function") {
+    state.tracks.clear();
+  }
+  if (state.railNodes && typeof state.railNodes.clear === "function") {
+    state.railNodes.clear();
+  }
+  if (state.railLinks && typeof state.railLinks.clear === "function") {
+    state.railLinks.clear();
+  }
+
+  if (typeof buildStationsFromCities === "function") {
+    buildStationsFromCities(state.cities || [], { target: state.stations });
+  }
+  if (typeof applyCustomStations === "function") applyCustomStations();
+  if (typeof reapplyDisabledStations === "function") reapplyDisabledStations();
+  if (typeof migrateLineStopsToStations === "function") {
+    migrateLineStopsToStations(state.lines);
+  }
+
+  state.simNodeMode = "cities";
+  state.realInfra = {
+    success: false,
+    stationsLoaded: false,
+    tracksLoaded: false,
+    stationsUrl: null,
+    edgesUrl: null
+  };
+}
+
+function ensureStarterStations(){
+  if (!state.stations) state.stations = new Map();
+  if (state.stations.size > 0) return;
+  if (typeof buildStationsFromCities === "function") {
+    buildStationsFromCities(state.cities || [], { target: state.stations });
+  }
+  if (typeof applyCustomStations === "function") applyCustomStations();
+  if (typeof reapplyDisabledStations === "function") reapplyDisabledStations();
+  if (state.stations.size === 0 && Array.isArray(state.cities)) {
+    for (const city of state.cities) {
+      if (!city) continue;
+      const pop = Number(city.population ?? city.pop ?? 0);
+      if (!Number.isFinite(pop)) continue;
+      const stationId = stationIdFromCity(city);
+      if (!stationId) continue;
+      state.stations.set(stationId, {
+        id: stationId,
+        name: city.name || city.city || stationId,
+        lat: Number(city.lat),
+        lon: Number(city.lon),
+        population: pop,
+        active: true,
+        source: "generated"
+      });
+    }
+  }
+}
+
+function refreshStationFoundation(){
+  const finalize = () => ensureCellsAndDemand();
+
+  if (typeof loadRealInfrastructure === "function") {
+    loadRealInfrastructure(state.countryId || "ES")
+      .then(payload => {
+        const applied = applyRealInfrastructureData(payload);
+        if (!applied) applyFallbackStations();
+      })
+      .catch((err) => {
+        console.warn("Real infrastructure load failed", err);
+        applyFallbackStations();
+      })
+      .finally(finalize);
+    return;
+  }
+
+  applyFallbackStations();
+  finalize();
 }
 
 function resetNetworkState(){
@@ -232,7 +440,9 @@ function exportStateSnapshot(){
     osmRailImported: !!state.osmRailImported,
     viewMode: state.viewMode,
     mapLayers: state.mapLayers,
-    simConfig: state.simConfig
+    simConfig: state.simConfig,
+    customStations: Array.from(state.customStations?.values?.() || []),
+    disabledStations: Array.from(state.disabledStations || [])
   };
 }
 
@@ -253,6 +463,18 @@ function applyStateSnapshot(snapshot){
   state.viewMode = snapshot.viewMode || state.viewMode;
   state.mapLayers = snapshot.mapLayers || state.mapLayers;
   state.simConfig = snapshot.simConfig || state.simConfig;
+  state.customStations = new Map();
+  if (Array.isArray(snapshot.customStations)) {
+    for (const station of snapshot.customStations) {
+      if (!station || !station.id) continue;
+      state.customStations.set(String(station.id), { ...station, id: String(station.id) });
+    }
+  }
+  state.disabledStations = new Set(
+    Array.isArray(snapshot.disabledStations)
+      ? snapshot.disabledStations.map(id => String(id || ""))
+      : []
+  );
   state.activeClusterId = snapshot.activeClusterId ?? null;
   state.activeTab = snapshot.activeTab ?? state.activeTab;
   state.primaryTab = snapshot.primaryTab ?? state.primaryTab;
@@ -321,6 +543,10 @@ function applyStateSnapshot(snapshot){
   if (!state.activeLine) {
     const firstLine = Array.from(state.lines.keys())[0] || null;
     state.activeLine = firstLine;
+  }
+
+  if (typeof migrateLineStopsToStations === "function") {
+    migrateLineStopsToStations(state.lines);
   }
 
   if (state.activeClusterId) {
@@ -471,6 +697,9 @@ async function boot(){
   if (typeof showLoading === "function") showLoading("Starting up...");
   console.log("boot start");
   initMap();
+  if (typeof loadPopPoints === "function") {
+    loadPopPoints().catch(err => console.warn("Failed to load pop points", err));
+  }
 
   const savedCountryId = getSavedCountryId();
   let spec = (typeof getCountrySpec === "function")
@@ -683,19 +912,39 @@ function setMapLayerOption(key, on){
   if (typeof render_overlay === "function") {
     try { render_overlay(); } catch (_) {}
   }
-  updateUI();
-}
-
-function setViewMode(mode){
-  state.viewMode = mode || "stations";
-  if (typeof render_overlay === "function") {
-    try { render_overlay(); } catch (_) {}
+  if (typeof syncMarkerVisibility === "function") {
+    try { syncMarkerVisibility(); } catch (_) {}
   }
   updateUI();
 }
 
 window.setMapLayerOption = setMapLayerOption;
-window.setViewMode = setViewMode;
+
+function selectDemandCell(cellId){
+  if (!cellId || !state.cells?.has(cellId)) {
+    state.selectedCellId = null;
+  } else {
+    state.selectedCellId = cellId;
+  }
+  if (typeof renderDemandOverlays === "function") {
+    try { renderDemandOverlays(); } catch (_) {}
+  }
+  updateUI();
+}
+
+window.selectDemandCell = selectDemandCell;
+
+function ui_centerOnCell(cellId){
+  const cell = state.cells?.get(cellId);
+  if (!cell) return;
+  selectDemandCell(cellId);
+  if (map && Number.isFinite(cell.centroidLat) && Number.isFinite(cell.centroidLon)) {
+    const zoom = Math.max(7, Math.min(12, map.getZoom()));
+    map.setView([cell.centroidLat, cell.centroidLon], zoom);
+  }
+}
+
+window.ui_centerOnCell = ui_centerOnCell;
 
 function showLoading(msg){
   const el = document.getElementById("loadingOverlay");
@@ -870,6 +1119,10 @@ for (const l of (data.lines || [])) {
 // set active line if any
 const firstLine = Array.from(state.lines.keys())[0] || null;
 state.activeLine = firstLine;
+
+if (typeof migrateLineStopsToStations === "function") {
+  migrateLineStopsToStations(state.lines);
+}
 
 // restore cluster view if needed
 if (state.activeClusterId) {

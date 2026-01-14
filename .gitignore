@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 data/offline/
+data/raw/
+*.osm.pbf
+*.osm.pbf.*
+*.osm.pbf.md5
+data/raw/es/*.geojson
+data/raw/es/*.osm.pbf
 
 # Editor directories and files
 .vscode/*

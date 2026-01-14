@@ -2,6 +2,23 @@
 
 const DEFAULT_PAX_FACTOR = 0.35;
 const DEFAULT_FREIGHT_FACTOR = 0.08;
+const STATION_COVERAGE_KM = Number(window.STATION_COVERAGE_KM ?? 10);
+const stationDistanceCache = new Map();
+
+function resetStationDistanceCache(){
+  stationDistanceCache.clear();
+}
+
+function cellToStationDistance(cell, station){
+  if (!cell || !station) return Infinity;
+  const key = `${String(cell.id || "")}|${String(station.id || "")}`;
+  if (stationDistanceCache.has(key)) return stationDistanceCache.get(key);
+  const distanceKm = haversineKm(cell.centroidLat, cell.centroidLon, station.lat, station.lon);
+  stationDistanceCache.set(key, distanceKm);
+  return distanceKm;
+}
+
+window.resetStationDistanceCache = resetStationDistanceCache;
 
 function stationServiceQuality(stationId, config){
   const weight = Number(config?.serviceQualityWeight ?? 0.25);
@@ -32,8 +49,9 @@ function getCandidateStations(cell, stations, config){
   const list = [];
   for (const station of stations){
     if (!station || !station.active) continue;
-    const distanceKm = haversineKm(cell.centroidLat, cell.centroidLon, station.lat, station.lon);
-    list.push({ station, distanceKm });
+    const distanceKm = cellToStationDistance(cell, station);
+    const coverageKm = Math.max(0, Number(station.coverageKm ?? STATION_COVERAGE_KM));
+    list.push({ station, distanceKm, coverageKm });
   }
   list.sort((a, b) => a.distanceKm - b.distanceKm);
   const within = list.filter(entry => entry.distanceKm <= (config.maxAccessKm ?? 60));
@@ -51,7 +69,10 @@ function scoreAllocations(cell, candidates, config, penaltyMap){
     const accessMin = (entry.distanceKm / accessSpeed) * 60;
     const serviceQuality = stationServiceQuality(stationId, config);
     const penalty = Number(penaltyMap?.get(stationId) ?? 1);
-    const value = Math.exp(-gravity * (accessMin / 60)) * serviceQuality * Math.max(0.0001, penalty);
+    const coverageBonus = entry.distanceKm <= entry.coverageKm
+      ? 1 + ((entry.coverageKm - entry.distanceKm) / Math.max(0.001, entry.coverageKm))
+      : 1;
+    const value = Math.exp(-gravity * (accessMin / 60)) * serviceQuality * coverageBonus * Math.max(0.0001, penalty);
     scores.push({ stationId, accessMin, score: value });
     if (accessMin < bestAccess) bestAccess = accessMin;
   }
@@ -137,7 +158,11 @@ function recomputeDemandModel(options = {}){
       catchments.set(cell.id, bestEntry.stationId);
     }
     for (const alloc of allocations){
-      finalLoads.set(alloc.stationId, (finalLoads.get(alloc.stationId) || 0) + alloc.pax);
+      const key = alloc.stationId;
+      const existing = finalLoads.get(key) || { pax: 0, freight: 0 };
+      existing.pax += alloc.pax;
+      existing.freight += alloc.freight;
+      finalLoads.set(key, existing);
     }
     finalAllocations.set(cell.id, allocations);
     underservedMap.set(cell.id, computeUnderserved(cell, bestAccess, config));
@@ -150,10 +175,13 @@ function recomputeDemandModel(options = {}){
   state.stationLoad.clear();
   for (const [stationId, load] of finalLoads.entries()){
     const capacity = Math.max(1, capacityMap.get(stationId) || 1);
-    const loadRatio = load / capacity;
+    const paxLoad = Number(load.pax || 0);
+    const freightLoad = Number(load.freight || 0);
+    const loadRatio = paxLoad / capacity;
     const congestionPenalty = 1 / (1 + Math.pow(loadRatio, congestionGamma));
     state.stationLoad.set(stationId, {
-      pax: load,
+      pax: paxLoad,
+      freight: freightLoad,
       capacity,
       loadRatio,
       congestionPenalty

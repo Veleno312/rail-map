@@ -314,4 +314,282 @@ Implementation notes:
 - Use small helper functions: haversineKm, pointInPolygon (basic), centroid of polygon.
 - Keep changes well-scoped: new modules in app/ and minimal edits to existing.
 
-End of task.
+
+
+PHASE 2 (Data upgrade): Replace “stations derived from cities” and “abstract tracks” with REAL station + railway infrastructure data, while keeping Phase 1’s model (cells→stations assignment, station-only line stops, underserved feedback loop) intact.
+
+Repo context (same as before):
+rail-map/
+  cities_es.json
+  custom_places.json
+  comarcas.geojson
+  app/...
+
+Goal of Phase 2:
+- Use REAL railway stations (points) and REAL rail track segments (edges) for Spain first.
+- Keep demand cells as comarcas (or grid later).
+- Keep the assignment model, but improve reachability and travel time using the real track graph.
+- Keep UI working and allow fallbacks if data is missing.
+
+NO new external libraries. Keep performance reasonable.
+
+========================================================
+1) NEW DATA INPUTS (Spain first)
+========================================================
+
+Add a new folder:
+data/es/
+  stations_es.json
+  rail_edges_es.json
+
+These are “processed” lightweight files that the app can load directly (do NOT ship raw OSM PBF; too big and complex).
+
+Define formats:
+
+A) stations_es.json
+[
+  {
+    "id": "st_es_000001",
+    "name": "Madrid-Puerta de Atocha",
+    "lat": 40.4066,
+    "lon": -3.6894,
+    "country": "ES",
+    "tags": {
+      "operator": "ADIF",
+      "type": "railway_station",
+      "uic_ref": "xxxxxx"
+    }
+  },
+  ...
+]
+
+B) rail_edges_es.json
+Edges connect station IDs OR connect to “junction nodes” (see below).
+Prefer station-to-station edges for a simple first version.
+[
+  {
+    "id": "edge_es_000001",
+    "a": "st_es_000001",
+    "b": "st_es_000102",
+    "distance_km": 6.1,
+    "max_speed_kmh": 120,
+    "track_type": "conventional",
+    "electrified": true,
+    "gauge": "iberian",
+    "capacity": 12,
+    "maintenance_cost": 1.0
+  },
+  ...
+]
+
+If you can’t reliably map all edges directly between stations (common), use a second structure:
+
+C) rail_nodes_es.json (junction graph)
+[
+  {"id":"rn_es_000001","lat":...,"lon":...,"kind":"junction"},
+  {"id":"st_es_000001","lat":...,"lon":...,"kind":"station"}  // stations may be included as nodes too
+]
+
+D) rail_links_es.json
+[
+  {"id":"rl_es_000001","a":"rn_es_000001","b":"rn_es_000002","distance_km":...,"max_speed_kmh":...}
+]
+
+Then have a mapping from stations to nearest rail node:
+stations_es.json adds:
+  "rail_node_id": "rn_es_000123"
+
+Codex should implement BOTH ingestion paths:
+- If rail_edges_es.json exists -> use station-to-station
+- Else if rail_nodes_es.json + rail_links_es.json exists -> use node graph + station mapping
+
+========================================================
+2) LOADER + COUNTRY SWITCHING
+========================================================
+
+Create app/data_registry.js:
+- getCountryDataConfig(countryCode) -> file paths to stations/tracks
+- default to ES in current project
+
+Create app/load_real_infra.js:
+- async loadStations(countryCode)
+- async loadRailGraph(countryCode)
+- returns {stationsMap, graphAdjacency, edgeMeta}
+
+On init/new game:
+- if data/es exists, use it
+- else fallback to Phase 1 station-from-cities + synthetic tracks (keep old behavior as fallback)
+
+========================================================
+3) REPLACE “DERIVED STATIONS” WITH REAL STATIONS (ES)
+========================================================
+
+Update app/stations.js:
+- If real stations loaded for current country:
+  - state.stations is set from stations_es.json
+  - city-to-station toggling UI becomes:
+    - “Build new station here” (creates a CUSTOM station)
+    - “Disable station” (for gameplay)
+- Keep a “custom stations” store:
+  data/custom_stations.json OR persist in save file:
+  state.customStations: Map
+  state.disabledStations: Set<stationId>
+
+Station identity:
+- Use stable IDs from stations_es.json
+- Custom stations use prefix "st_custom_"
+
+========================================================
+4) TRACK GRAPH: USE REAL INFRA FOR TRAVEL TIME + REACHABILITY
+========================================================
+
+Update app/graph.js:
+- Build adjacency from real rail edges/links
+- Weight = travel time minutes:
+  timeMin = (distance_km / effective_speed_kmh) * 60
+- effective_speed_kmh:
+  if max_speed_kmh exists -> use it
+  else:
+    conventional default 110, highspeed default 250
+- Add penalties if desired:
+  - non-electrified penalty
+  - gauge mismatch penalty (optional later)
+
+Precompute:
+- For demand assignment you need station-to-station travel times sometimes.
+Add:
+- computeStationTravelTimesFromHub(hubStationIds[]) using multiSourceDijkstra
+- OR compute per-station centrality only when needed
+
+Keep it fast:
+- Do NOT compute all-pairs shortest paths.
+- Use:
+  - multi-source to key hubs, and/or
+  - per-cell only compute access + nearest K stations by access, and optionally one dijkstra from each candidate station to a small set of “major centers”.
+
+========================================================
+5) ACCESS MODEL: IMPROVE CELL->STATION ACCESS
+========================================================
+
+In Phase 1, access time is straight-line / road-speed proxy.
+
+Phase 2 upgrades:
+- Keep straight-line as base.
+- Add a “means” toggle:
+  simConfig.accessMode = "straight" | "hybrid"
+Hybrid:
+- If station is within maxAccessKm -> straight
+- Else apply a penalty (rural isolation) rather than infinite rejection:
+  accessMin = straightMin * 1.35 + 20
+
+Still no real road graph (out of scope for Phase 2), but this yields better realism.
+
+========================================================
+6) SERVICE QUALITY: BASE IT ON ACTUAL LINES USING REAL GRAPH
+========================================================
+
+Update serviceQuality(station):
+- Use existing line objects in state.lines
+- A station is served if it appears as a stop on any line
+- service = sum(line.frequencyPerDay * line.capacityPerTrain) (or best available proxies)
+- quality = 1 + W * log(1 + service)
+
+Also compute line travel time using real rail graph between consecutive stops:
+- For each line segment (stop[i] -> stop[i+1]), run dijkstra on rail graph to get segment time
+- Cache results per pair (stationIdA|stationIdB) to avoid repeated dijkstra
+- This allows schedule simulation to reflect infrastructure upgrades
+
+========================================================
+7) DEMAND ASSIGNMENT: ADD RAIL CONNECTIVITY TERM (OPTIONAL BUT DESIRED)
+========================================================
+
+In app/demand_assign.js scoring:
+score = exp(-alpha * accessHours)
+      * exp(-beta * railHubHours(station))     // NEW connectivity term
+      * serviceQuality(station)
+      * congestionPenalty(station)
+
+Define railHubHours(station) cheaply:
+- Choose 5-10 fixed “major centers” for ES:
+  - pick top N stations by “importance” tag or nearest to biggest cities (Madrid, Barcelona, Valencia, Sevilla, Bilbao…)
+- Compute travel time from every station to nearest hub using multiSourceDijkstra once per recompute.
+- railHubHours = timeToNearestHub / 60
+This makes “isolated-but-has-one-AVE-stop” visible: if a station has AVE but poor mesh to hubs, it won’t magically dominate.
+
+========================================================
+8) VISUALIZATION: SHOW REAL TRACKS
+========================================================
+
+Add a layer: layers.railInfra
+- Draw polylines for each edge/link
+- Light styling to avoid clutter
+- Toggle in UI: “Show real rail infra”
+
+If using node+links, draw link geometries:
+- If only endpoints exist, draw straight segments (ok)
+- If you have shape points in processed data, draw those (optional)
+
+========================================================
+9) EDITOR TOOLS: UPGRADE TRACK / ADD SPUR / BUILD STATION
+========================================================
+
+Add simple tools (minimal viable):
+- Build station (custom): click map -> create station + optionally connect to nearest rail node (if using node graph) by a short connector edge with low speed.
+- Upgrade track: click an edge -> increase max_speed_kmh or capacity (store modifications in save).
+- Toggle station enabled/disabled.
+
+Persist edits:
+- state.trackOverrides: Map<edgeId, {max_speed_kmh?, capacity?, disabled?}>
+- state.stationOverrides: {disabledStations Set, customStations Map}
+
+Graph builder must apply overrides every rebuild.
+
+========================================================
+10) SAVE/LOAD + MIGRATION
+========================================================
+
+Save file must include:
+- current country
+- disabledStations
+- customStations
+- trackOverrides
+- lines + schedules (existing)
+- UI viewMode + mapLayers + simConfig
+
+On load:
+- load base ES infra, then apply overrides, then rebuild adjacency, then recompute demand.
+
+If old saves referenced derived stations:
+- attempt a mapping:
+  - if stop id starts with "ST-" (city-derived), try to match nearest real station within 5km
+  - if match found, replace stop id
+  - else create a custom station at the old coordinates
+Log a warning in UI toast: “Migrated X stops; Y became custom.”
+
+========================================================
+11) ACCEPTANCE CHECKLIST
+========================================================
+
+- With ES real infra present:
+  - Stations view shows real stations.
+  - Real rail infra toggles and draws edges.
+  - Lines compute segment travel times via rail graph.
+  - Demand heat + underserved changes if you disable a station or upgrade a track.
+- Without ES infra:
+  - Phase 1 fallback still works.
+
+========================================================
+12) NOTES FOR CODING
+========================================================
+
+- No new libs.
+- Keep all new logic in new modules under app/:
+  load_real_infra.js
+  data_registry.js
+  graph.js (extended)
+  demand_assign.js (extended)
+- Keep changes to existing files minimal and well-commented.
+- Prefer caching (Map) for dijkstra results between station pairs used by lines.
+- Ensure UI remains responsive: recompute demand on explicit button or on “commit changes”, not every mouse move.
+
+END PHASE 2 TASK.

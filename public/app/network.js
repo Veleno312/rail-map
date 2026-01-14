@@ -2,6 +2,77 @@
 // ======================
 // Tracks (black line + white lane number label)
 // ======================
+const TRACK_PROFILE_SAMPLES = 25;
+const MAX_GRADE_PERCENT = 2.5;
+
+function perfLogNetwork(label, start){
+  if (!state?.debug?.perf || typeof start !== "number") return;
+  const delta = Math.max(0, performance.now() - start);
+  console.info(`[perf] ${label}: ${delta.toFixed(1)}ms`);
+}
+
+function getElevation(lat, lon){
+  if (typeof window.demElevationProvider === "function") {
+    return Number(window.demElevationProvider(lat, lon)) || 0;
+  }
+  const key = `${lat.toFixed(5)}|${lon.toFixed(5)}`;
+  const noise = hash01(key) || 0;
+  const base = Math.sin(lat * Math.PI / 180) * 40 + Math.cos(lon * Math.PI / 90) * 25;
+  return base + noise * 30;
+}
+
+window.getElevation = getElevation;
+
+function distanceKmBetween(lat1, lon1, lat2, lon2){
+  if (typeof map !== "undefined" && map) {
+    return map.distance([lat1, lon1], [lat2, lon2]) / 1000;
+  }
+  const toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLon = (lon2 - lon1) * toRad;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return 6371 * c;
+}
+
+function sampleTrackProfile(a, b, samples = TRACK_PROFILE_SAMPLES){
+  if (!a || !b) return [];
+  const pts = [];
+  for (let i = 0; i <= samples; i++){
+    const t = samples ? (i / samples) : 0;
+    const lat = Number(a.lat) + (Number(b.lat) - Number(a.lat)) * t;
+    const lon = Number(a.lon) + (Number(b.lon) - Number(a.lon)) * t;
+    const elevation = getElevation(lat, lon);
+    pts.push({ lat, lon, elev: elevation });
+  }
+  return pts;
+}
+
+function analyzeTrackProfile(points){
+  if (!Array.isArray(points) || points.length < 2) {
+    return { distanceKm: 0, maxGrade: 0, avgGrade: 0, tunnelKm: 0 };
+  }
+  let totalDist = 0;
+  let totalGrade = 0;
+  let maxGrade = 0;
+  let tunnelKm = 0;
+  let segments = 0;
+  for (let i = 1; i < points.length; i++){
+    const prev = points[i - 1];
+    const next = points[i];
+    const dist = distanceKmBetween(prev.lat, prev.lon, next.lat, next.lon);
+    totalDist += dist;
+    const delta = Math.abs(next.elev - prev.elev);
+    const grade = dist > 0 ? (delta / (dist * 1000)) * 100 : 0;
+    totalGrade += grade;
+    maxGrade = Math.max(maxGrade, grade);
+    if (grade > MAX_GRADE_PERCENT) tunnelKm += dist;
+    segments++;
+  }
+  const avgGrade = segments ? (totalGrade / segments) : 0;
+  return { distanceKm: totalDist, maxGrade, avgGrade, tunnelKm };
+}
 function calculateTrackCost(a, b, lanes=1){
   const km = (map.distance([a.lat,a.lon],[b.lat,b.lon]) / 1000) || 0;
   const constructionCost = km * CONFIG.TRACK_COST_PER_KM * lanes;
@@ -44,6 +115,22 @@ function track_structureForSegment(fromId, toId){
   return { type, mult };
 }
 
+let adjacencyCache = null;
+const routeCache = new Map();
+
+function invalidateRoutingCache(){
+  adjacencyCache = null;
+  routeCache.clear();
+}
+
+function routeCacheKey(a, b){
+  if (!a || !b) return null;
+  const [left, right] = [String(a), String(b)].sort();
+  return `${left}|${right}`;
+}
+
+window.invalidateRoutingCache = invalidateRoutingCache;
+
 function track_estimateBuild(fromId, toId, lanes=1){
   const a = state.nodes.get(fromId);
   const b = state.nodes.get(toId);
@@ -51,10 +138,22 @@ function track_estimateBuild(fromId, toId, lanes=1){
 
   const base = calculateTrackCost(a, b, lanes);
   const structure = track_structureForSegment(fromId, toId);
-  const costTotal = base.constructionCost * structure.mult;
+  const profile = sampleTrackProfile(a, b, TRACK_PROFILE_SAMPLES);
+  const stats = analyzeTrackProfile(profile);
 
+  const laneFactor = Math.max(1, Number(lanes || 1));
+  base.distanceKm = stats.distanceKm;
+  base.constructionCost = stats.distanceKm * CONFIG.TRACK_COST_PER_KM * laneFactor;
+  base.maintenanceCost = stats.distanceKm * CONFIG.TRACK_MAINTENANCE_PER_KM * laneFactor;
+
+  const gradePenalty = 1 + Math.pow(Math.max(0, stats.maxGrade - MAX_GRADE_PERCENT) / MAX_GRADE_PERCENT, 2);
+  const structureMult = Math.max(1, structure.mult || 1);
+  const tunnelCost = stats.tunnelKm * CONFIG.TRACK_COST_PER_KM * 0.5;
+  const buildCost = Math.round(base.constructionCost * gradePenalty * structureMult + tunnelCost);
+  const maintenanceCost = Math.round(base.maintenanceCost * gradePenalty);
+  const adjustedDistance = stats.distanceKm;
   const timeMult = 1 + (structure.mult - 1) * 0.6;
-  const days = Math.max(2, Math.round(base.distanceKm * CONFIG.TRACK_BUILD_DAYS_PER_KM * (0.85 + 0.15 * lanes) * timeMult));
+  const days = Math.max(2, Math.round(adjustedDistance * CONFIG.TRACK_BUILD_DAYS_PER_KM * (0.85 + 0.15 * laneFactor) * timeMult));
 
   const issueChance = Number(CONFIG.TRACK_BUILD_ISSUE_CHANCE || 0);
   const issueRoll = hash01(`${edgeKey(fromId, toId)}|issue`);
@@ -67,14 +166,26 @@ function track_estimateBuild(fromId, toId, lanes=1){
     const type = types[Math.floor(hash01(`${edgeKey(fromId, toId)}|issue_type`) * types.length)];
     issue = {
       type,
-      cost: Math.round(costTotal * frac),
+      cost: Math.round(buildCost * frac),
       triggerDay,
       resolved: false,
       active: false
     };
   }
 
-  return { base, structure, costTotal, days, issue };
+  return {
+    base,
+    structure,
+    costTotal: buildCost,
+    days,
+    issue,
+    distanceKm: adjustedDistance,
+    estimatedBuildCost: buildCost,
+    estimatedMaintenanceCost: maintenanceCost,
+    estimatedMaxSpeed: Math.max(40, 150 - Math.round(stats.maxGrade * 4)),
+    tunnelKm: stats.tunnelKm,
+    gradeStats: stats
+  };
 }
 
 function track_statusStyle(status){
@@ -186,6 +297,7 @@ function track_removeVisual(track){
   try { if (track._label) layers.trackLabels.removeLayer(track._label); } catch(_) {}
   track._layer = null;
   track._label = null;
+  if (typeof markNetworkDirty === "function") markNetworkDirty();
 }
 
 function track_hideAllLabels(){
@@ -197,16 +309,10 @@ function track_hideAllLabels(){
 
 function track_updateVisibility(){
   if (!map || !state.tracks) return;
-  const showBackboneOnly = map.getZoom() <= CONFIG.CLUSTER_VIEW_MAX_ZOOM;
   for (const t of state.tracks.values()){
     if (!t || !t._layer) continue;
-    let visible = true;
-    if (showBackboneOnly) {
-      const a = state.nodes.get(t.from);
-      const b = state.nodes.get(t.to);
-      visible = !!(a && b && a.kind === "cluster" && b.kind === "cluster");
-    }
-    if (!visible) {
+    const isStationTrack = !!(state.stations?.has(t.from) && state.stations?.has(t.to));
+    if (!isStationTrack) {
       t._layer.setStyle({ opacity: 0, weight: 0 });
       if (t._label) t._label.setOpacity(0);
     } else {
@@ -216,6 +322,16 @@ function track_updateVisibility(){
 }
 
 function addTrack(fromId, toId, lanes=1, {silent=false, status="built"} = {}){
+  if (state.simNodeMode === "stations" && state.realInfra?.success) {
+    if (!silent) showToast("Real infrastructure is read-only; cannot edit tracks", "warning");
+    return null;
+  }
+  if (state.simNodeMode === "stations" && state.stations) {
+    if (!state.stations.has(fromId) || !state.stations.has(toId)) {
+      if (!silent) showToast("Tracks must connect stations", "warning");
+      return null;
+    }
+  }
   const a = state.nodes.get(fromId);
   const b = state.nodes.get(toId);
   if (!a || !b) return null;
@@ -259,6 +375,7 @@ function addTrack(fromId, toId, lanes=1, {silent=false, status="built"} = {}){
 
   state.tracks.set(trackId, track);
   track_makeVisual(track);
+  if (typeof markNetworkDirty === "function") markNetworkDirty();
 
   if (!silent) {
     undo_pushAction({
@@ -315,6 +432,16 @@ function track_isUsedByLines(trackId){
 }
 
 function construction_queueBuild(fromId, toId, lanes=1, {silent=false} = {}){
+  if (state.simNodeMode === "stations" && state.realInfra?.success) {
+    if (!silent) showToast("Real infrastructure is read-only; cannot plan builds", "warning");
+    return;
+  }
+  if (state.simNodeMode === "stations" && state.stations) {
+    if (!state.stations.has(fromId) || !state.stations.has(toId)) {
+      if (!silent) showToast("Build tracks between stations only", "warning");
+      return;
+    }
+  }
   const a = state.nodes.get(fromId);
   const b = state.nodes.get(toId);
   if (!a || !b) return;
@@ -376,6 +503,10 @@ function construction_queueBuild(fromId, toId, lanes=1, {silent=false} = {}){
 }
 
 function construction_queueDemolish(trackId){
+  if (state.simNodeMode === "stations" && state.realInfra?.success) {
+    showToast("Real infrastructure is read-only; cannot demolish tracks", "warning");
+    return;
+  }
   state.construction ||= { queue: [], active: [], history: [] };
   const t = state.tracks.get(trackId);
   if (!t) return;
@@ -558,6 +689,68 @@ function construction_resolveIssue(jobId){
   updateUI();
 }
 
+let trackPreviewEl = null;
+
+function ensureTrackPreviewOverlay(){
+  if (trackPreviewEl) return trackPreviewEl;
+  trackPreviewEl = document.createElement("div");
+  trackPreviewEl.id = "trackPreviewOverlay";
+  Object.assign(trackPreviewEl.style, {
+    position: "fixed",
+    bottom: "18px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "rgba(15,23,42,0.95)",
+    color: "#fff",
+    padding: "18px",
+    borderRadius: "14px",
+    boxShadow: "0 16px 40px rgba(15,23,42,0.65)",
+    zIndex: "1400",
+    width: "320px",
+    fontFamily: "sans-serif",
+    display: "none",
+    lineHeight: "1.4",
+    textAlign: "left"
+  });
+  document.body.appendChild(trackPreviewEl);
+  return trackPreviewEl;
+}
+
+function hideTrackBuildPreview(){
+  if (!trackPreviewEl) return;
+  trackPreviewEl.style.display = "none";
+}
+
+function showTrackBuildPreview(summary = {}, onConfirm, onCancel){
+  const el = ensureTrackPreviewOverlay();
+  const lines = [
+    `Distance: ${fmtNum(summary.distanceKm?.toFixed?.(1) ?? summary.distanceKm ?? 0)} km`,
+    `Build cost: ${formatCurrency(summary.estimatedBuildCost ?? 0)}`,
+    `Maintenance/year: ${formatCurrency(summary.estimatedMaintenanceCost ?? 0)}`,
+    `Tunnel estimate: ${fmtNum(summary.tunnelKm ? Number(summary.tunnelKm).toFixed(1) : 0)} km`,
+    `Max speed estimate: ${Math.max(0, Math.round(summary.estimatedMaxSpeed || 0))} km/h`
+  ].map(line => `<div style="font-size:13px;margin-bottom:4px;">${line}</div>`).join("");
+  el.innerHTML = `
+    <div style="font-weight:900;font-size:15px;margin-bottom:6px;">Confirm track build</div>
+    ${lines}
+    <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+      <button class="btn secondary" style="padding:6px 14px;font-size:13px;" data-action="cancel">Cancel</button>
+      <button class="btn" style="padding:6px 14px;font-size:13px;" data-action="confirm">Confirm</button>
+    </div>
+  `;
+  const confirmBtn = el.querySelector("[data-action=confirm]");
+  const cancelBtn = el.querySelector("[data-action=cancel]");
+  confirmBtn.onclick = () => {
+    hideTrackBuildPreview();
+    if (typeof onConfirm === "function") onConfirm();
+  };
+  cancelBtn.onclick = () => {
+    hideTrackBuildPreview();
+    if (typeof onCancel === "function") onCancel();
+  };
+  el.style.display = "block";
+}
+
 function track_handleClick(trackId){
   const t = state.tracks.get(trackId);
   if (!t) return;
@@ -592,10 +785,21 @@ function handleTrackBuildClick(node){
     return;
   }
 
-  construction_queueBuild(a.id, b.id, state.pendingTrackLanes || 1);
-  state.pendingTrackNode = b;
-  showToast(`Track plan: next start = ${b.name}`, "info");
-  updateUI();
+  const estimate = track_estimateBuild(a.id, b.id, state.pendingTrackLanes || 1);
+  if (!estimate) {
+    showToast("Cannot estimate this track", "warning");
+    return;
+  }
+
+  showTrackBuildPreview(estimate, () => {
+    construction_queueBuild(a.id, b.id, state.pendingTrackLanes || 1, { silent: true });
+    state.pendingTrackNode = b;
+    showToast(`Track planned: ${a.name} → ${b.name}`, "success");
+    updateUI();
+  }, () => {
+    showToast("Track build cancelled", "info");
+    state.pendingTrackNode = a;
+  });
 }
 
 // ======================
@@ -972,8 +1176,9 @@ for (let i = 0; i < line.stops.length - 1; i++) {
   if (s < bestScore) { bestScore = s; best = cand; }
 }
 
-line.stops = best || [...line.stops, nodeId];
-improveLineOrder(line);
+  line.stops = best || [...line.stops, nodeId];
+  improveLineOrder(line);
+  markDemandDirty();
 }
 
 function autoLanesForLineType(type){
@@ -993,8 +1198,10 @@ function track_speed(lanes){
 }
 
 function renderGraph_buildTrackAdj(){
-const adj = new Map();
-if (!map || !state.tracks || !state.nodes) return adj;
+  if (!map || !state.tracks || !state.nodes) return new Map();
+  if (adjacencyCache && !state?.dirty?.network) return adjacencyCache;
+  const start = state.debug?.perf ? performance.now() : null;
+  const adj = new Map();
 
 for (const t of state.tracks.values()){
   if (!t) continue;
@@ -1016,7 +1223,11 @@ for (const t of state.tracks.values()){
   adj.get(aId).push({ to: bId, w });
   adj.get(bId).push({ to: aId, w });
 }
-return adj;
+  adjacencyCache = adj;
+  if (state.dirty) state.dirty.network = false;
+  routeCache.clear();
+  if (start) perfLog("renderGraph_buildTrackAdj", start);
+  return adj;
 }
 
 
@@ -1035,10 +1246,31 @@ for (const [a,b] of pairs){
 return true;
 }
 
+function computePathStats(path, adj){
+  let distanceKm = 0;
+  let timeSeconds = 0;
+  if (!Array.isArray(path) || path.length < 2) return { distanceKm: 0, timeSeconds: 0 };
+  for (let i = 1; i < path.length; i++){
+    const from = path[i-1];
+    const to = path[i];
+    const neighbors = adj.get(from) || [];
+    const edge = neighbors.find(e => String(e.to) === String(to));
+    if (!edge) continue;
+    distanceKm += Number(edge.distanceKm || 0);
+    timeSeconds += Number(edge.w || 0);
+  }
+  return { distanceKm, timeSeconds };
+}
+
 function renderGraph_shortestPath(adj, startId, goalId){
-if (!startId || !goalId) return null;
-if (startId === goalId) return [startId];
-if (!adj || !adj.size) return null;
+  const cacheKey = routeCacheKey(startId, goalId);
+  if (cacheKey && !state?.dirty?.network && routeCache.has(cacheKey)) {
+    return routeCache.get(cacheKey)?.nodes || null;
+  }
+  if (!startId || !goalId) return null;
+  if (startId === goalId) return [startId];
+  if (!adj || !adj.size) return null;
+  const perfStart = state.debug?.perf ? performance.now() : null;
 
 const dist = new Map();
 const prev = new Map();
@@ -1072,18 +1304,28 @@ while (pq.length) {
   }
 }
 
-if (!dist.has(goalId)) return null;
+  if (!dist.has(goalId)) return null;
 
 // Reconstruct
-const path = [];
-let cur = goalId;
-while (cur != null) {
-  path.push(cur);
-  if (cur === startId) break;
-  cur = prev.get(cur);
-}
-path.reverse();
-return path[0] === startId ? path : null;
+  const path = [];
+  let cur = goalId;
+  while (cur != null) {
+    path.push(cur);
+    if (cur === startId) break;
+    cur = prev.get(cur);
+  }
+  path.reverse();
+  const result = path[0] === startId ? path : null;
+  if (cacheKey && result) {
+    const stats = computePathStats(result, adj);
+    routeCache.set(cacheKey, {
+      nodes: result,
+      distanceKm: Number(stats.distanceKm || 0),
+      timeMin: (Number(stats.timeSeconds || 0) / 60)
+    });
+  }
+  if (perfStart) perfLog("renderGraph_shortestPath", perfStart);
+  return result;
 }
 
 function ensureLineTracks(line, adj){
@@ -1324,7 +1566,21 @@ if (state.activeLine && state.lines.has(state.activeLine) && state.lineBuildMode
 const line = state.lines.get(state.activeLine);
 const beforeStops = Array.isArray(line.stops) ? line.stops.slice() : [];
 
-addStopSmart(line, nodeId);
+const stationId = (typeof nodeToStationId === "function") ? nodeToStationId(nodeId) : null;
+const stationEntry = stationId ? state.stations.get(stationId) : null;
+if (!stationId) {
+  showToast("Not a station — build or convert station first", "warning");
+  return;
+}
+if (!stationEntry || !stationEntry.active) {
+  showToast("Station inactive. Reactivate it via the City inspector before adding stops.", "warning");
+  return;
+}
+if (!stationEntry.rail_node_id) {
+  showToast("Station has no snapped rail node (unroutable)", "warning");
+  return;
+}
+addStopSmart(line, stationId);
 
 // Only push undo if something actually changed
 if (Array.isArray(line.stops) && line.stops.length !== beforeStops.length) {

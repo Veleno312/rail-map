@@ -97,6 +97,10 @@ Depends on: [2.4], [2.6]
 [2.11] Live updates overlay layer (M/L) (Optional online)
 Depends on: [2.10]
 
+### Station-first demand overlays
+- The station-first foundation from `Replace.txt` now powers the comarcas/demand heat/underserved/catchment overlays, and the recompute button reruns the cells->stations allocation so those layers match the current station network.
+- Scenario and Economy panels now offer quick controls that share the same map-layer state as the Network tab, so toggling from any tab keeps the visualization consistent while reflecting the station-first model.
+
 ============================================================
 3) WORLD SCALE CORE: tiles + indexes + progressive expansion 📄
 ============================================================
