@@ -1781,7 +1781,7 @@ var state = {
   countryView: null,
   countryBorder: null,
   worldBorder: null,
-  mapTheme: "default",
+  mapTheme: "metro",
   worldView: false,
   onlineMode: true,
   unlocks: {
@@ -1855,6 +1855,7 @@ flowSummary: {
     showCatchments: false,
     showUnderserved: false,
     showRealInfra: true,
+    showCountryBorders: true,
     highlightUnusedStations: false
   },
   stationPlacementMode: false,
@@ -1865,6 +1866,8 @@ flowSummary: {
     demand: false,
     network: false
   },
+  stationStamp: 0,
+  trackStamp: 0,
   customStations: new Map(),
   disabledStations: new Set(),
   simConfig: {
@@ -1884,7 +1887,7 @@ flowSummary: {
   stationLoad: new Map(),
   underservedByCell: new Map(),
   catchmentByCell: new Map(),
-  cityStationAllocation: new Map(),
+  cityToStationAllocation: new Map(),
   stationCityAllocations: new Map(),
   realInfra: {
     success: false,

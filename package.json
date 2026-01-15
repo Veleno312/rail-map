@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test:golden": "node scripts/run-golden.js",
     "test:regression": "npm run lint && npm run test:golden",
+    "data:es:geojson": "python tools/gen_es_geojson.py data/raw/es/spain-latest.osm.pbf",
     "data:es:build": "python tools/build_es_rail_infra.py public/data/es",
     "data:es:pop": "python tools/build_pop_points.py public/data/es"
   },

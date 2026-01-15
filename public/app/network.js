@@ -190,10 +190,30 @@ function track_estimateBuild(fromId, toId, lanes=1){
 
 function track_statusStyle(status){
   const isMetro = state.mapTheme === "metro";
-  if (status === "planned") return { color: isMetro ? "rgba(255,255,255,0.35)" : "#94a3b8", dashArray: "6,6", weight: 2.5, opacity: 0.7 };
+  if (status === "planned") return { color: isMetro ? "rgba(255,255,255,0.45)" : "#94a3b8", dashArray: "6,6", weight: 2.5, opacity: 0.65 };
   if (status === "building") return { color: isMetro ? "#f5d081" : "#f59e0b", dashArray: "3,6", weight: 3.0, opacity: 0.9 };
   if (status === "demolishing") return { color: isMetro ? "#f5a3a3" : "#ef4444", dashArray: "2,6", weight: 3.0, opacity: 0.9 };
-  return { color: isMetro ? "#f8fafc" : "#000", dashArray: null, weight: 2.5, opacity: 0.95 };
+  return { color: isMetro ? "#ffffff" : "#000", dashArray: null, weight: 2.5, opacity: 0.95 };
+}
+
+function trackTooltipHtml(track){
+  if (!track) return "";
+  const distance = Number(track.distance_km ?? track.distanceKm ?? track.cost?.distanceKm ?? 0);
+  const speed = Math.max(1, Number(track.max_speed_kmh ?? track.maxSpeedKmh ?? track.cost?.max_speed_kmh ?? 120));
+  const lanes = Math.max(1, Number(track.lanes || 1));
+  const buildCost = Number(track.build_cost ?? track.cost?.constructionCost ?? 0);
+  const maintenanceCost = Number(track.maintenance_cost ?? track.cost?.maintenanceCost ?? 0);
+  const tunnels = Number(track.tunnels_km ?? track.tunnelKm ?? 0);
+  const status = String(track.status || "built");
+  const costText = (typeof formatCurrency === "function") ? formatCurrency(buildCost) : buildCost;
+  const maintText = (typeof formatCurrency === "function") ? formatCurrency(maintenanceCost) : maintenanceCost;
+  return `
+    <div style="font-size:13px;line-height:1.3;">
+      <strong>Track ${status}</strong><br>
+      ${distance.toFixed(2)} km · ${speed} km/h · ${lanes} lane${lanes === 1 ? "" : "s"}<br>
+      Build ${costText} · Maint ${maintText}/yr<br>
+      Tunnels ${tunnels.toFixed(2)} km
+    </div>`;
 }
 
 function track_applyStyle(track){
@@ -221,6 +241,10 @@ function track_makeVisual(track){
     lineCap: "round",
     dashArray: s.dashArray
   }).addTo(layers.tracks);
+  const tooltipHtml = trackTooltipHtml(track);
+  if (tooltipHtml) {
+    line.bindTooltip(tooltipHtml, { direction: "center", className: "track-tooltip", opacity: 0.9 });
+  }
 
   const midLat = (a.lat + b.lat) / 2;
   const midLon = (a.lon + b.lon) / 2;
@@ -321,7 +345,7 @@ function track_updateVisibility(){
   }
 }
 
-function addTrack(fromId, toId, lanes=1, {silent=false, status="built"} = {}){
+function addTrack(fromId, toId, lanes=1, {silent=false, status="built", metadata={}, cost=null} = {}){
   if (state.simNodeMode === "stations" && state.realInfra?.success) {
     if (!silent) showToast("Real infrastructure is read-only; cannot edit tracks", "warning");
     return null;
@@ -358,23 +382,50 @@ function addTrack(fromId, toId, lanes=1, {silent=false, status="built"} = {}){
     const old = state.tracks.get(trackId);
     track_removeVisual(old);
     state.tracks.delete(trackId);
+    if (typeof updateRailLinksFromTracks === "function") updateRailLinksFromTracks();
   }
 
-  const cost = calculateTrackCost(a, b, lanes);
+  const estimate = track_estimateBuild(fromId, toId, lanes) || {};
+  const overrides = metadata || {};
+  const baseCost = cost || estimate.base || {};
+  const distanceKm = Number(overrides.distance_km ?? estimate.distanceKm ?? baseCost.distanceKm ?? 0);
+  const maxSpeed = Math.max(1, Number(overrides.max_speed_kmh ?? estimate.estimatedMaxSpeed ?? baseCost.max_speed_kmh ?? 120));
+  const buildCost = Number(overrides.build_cost ?? estimate.estimatedBuildCost ?? estimate.costTotal ?? baseCost.constructionCost ?? 0);
+  const maintenanceCost = Number(overrides.maintenance_cost ?? estimate.estimatedMaintenanceCost ?? baseCost.maintenanceCost ?? 0);
+  const demolishCost = Number(overrides.demolish_cost ?? Math.round(buildCost * 0.35));
+  const tunnelsKm = Number(overrides.tunnels_km ?? estimate.tunnelKm ?? baseCost.tunnelKm ?? 0);
+  const electrified = overrides.electrified ?? false;
+  const gauge = overrides.gauge || "standard";
+  const capacity = Number(overrides.capacity ?? (lanes * 100));
+  const structureType = overrides.structureType ?? estimate.structure?.type ?? "surface";
+  const structureMult = Number(overrides.structureMult ?? estimate.structure?.mult ?? 1);
+
   const track = {
     id: trackId,
     from: fromId,
     to: toId,
     lanes,
-    cost,
     status,
     progress: status === "built" ? 1 : 0,
+    distance_km: distanceKm,
+    max_speed_kmh: maxSpeed,
+    build_cost: buildCost,
+    maintenance_cost: maintenanceCost,
+    demolish_cost: demolishCost,
+    tunnels_km: tunnelsKm,
+    electrified,
+    gauge,
+    capacity,
+    structureType,
+    structureMult,
+    cost: baseCost,
     _layer: null,
     _label: null
   };
 
   state.tracks.set(trackId, track);
   track_makeVisual(track);
+  if (typeof updateRailLinksFromTracks === "function") updateRailLinksFromTracks();
   if (typeof markNetworkDirty === "function") markNetworkDirty();
 
   if (!silent) {
@@ -472,9 +523,11 @@ function construction_queueBuild(fromId, toId, lanes=1, {silent=false} = {}){
 
   const t = state.tracks.get(trackId);
   if (t) {
-    t.structureType = est.structure.type;
-    t.structureMult = est.structure.mult;
-    t.buildCost = est.costTotal;
+    t.structureType = est.structure?.type ?? t.structureType;
+    t.structureMult = Number(est.structure?.mult ?? t.structureMult ?? 1);
+    t.build_cost = Number(est.costTotal ?? t.build_cost ?? 0);
+    t.maintenance_cost = Number(est.estimatedMaintenanceCost ?? t.maintenance_cost ?? 0);
+    t.tunnels_km = Number(est.tunnelKm ?? t.tunnels_km ?? 0);
   }
 
   state.construction.queue.push({
@@ -567,6 +620,7 @@ function construction_cancelQueued(jobId){
     if (t && t.status === "planned") {
       track_removeVisual(t);
       state.tracks.delete(job.trackId);
+      if (typeof updateRailLinksFromTracks === "function") updateRailLinksFromTracks();
     }
   }
   if (job.type === "demolish") {
@@ -651,6 +705,7 @@ function construction_advanceDay(){
         if (t) {
           track_removeVisual(t);
           state.tracks.delete(job.trackId);
+          if (typeof updateRailLinksFromTracks === "function") updateRailLinksFromTracks();
         }
         if (job.salvage > 0) state.budget += job.salvage;
         showToast("Track demolished", "warning");
@@ -761,9 +816,12 @@ function track_handleClick(trackId){
   }
 
   const status = t.status || "built";
+  const distance = Number(t.distance_km ?? t.distanceKm ?? 0).toFixed(1);
+  const speed = Math.max(1, Number(t.max_speed_kmh ?? t.maxSpeedKmh ?? 0));
+  const lanes = Math.max(1, Number(t.lanes || 1));
   const progress = Number.isFinite(t.progress) ? Math.round(t.progress * 100) : 0;
   const struct = t.structureType ? ` (${t.structureType})` : "";
-  showToast(`Track ${status}${struct} - ${progress}%`, "info");
+  showToast(`Track ${status}${struct} · ${distance} km · ${speed} km/h · ${lanes} lanes · ${progress}%`, "info");
 }
 
 // Track build mode now CHAIN-PLANS:
@@ -1211,17 +1269,15 @@ for (const t of state.tracks.values()){
   const b = state.nodes.get(bId);
   if (!a || !b) continue;
 
-  const distanceM = map.distance([Number(a.lat), Number(a.lon)], [Number(b.lat), Number(b.lon)]);
-  const speedKmh = track_speed(t.lanes);
-  const speedMPerS = (speedKmh * 1000) / 3600;
-  const timeS = distanceM / speedMPerS;
-  const w = timeS;
-  if (!Number.isFinite(w) || w <= 0) continue;
+  const distanceKm = Number(t.distance_km ?? t.cost?.distanceKm ?? 0);
+  const speedKmh = Math.max(1, Number(t.max_speed_kmh ?? (t.cost?.max_speed_kmh ?? track_speed(t.lanes))));
+  const timeS = distanceKm > 0 ? (distanceKm / speedKmh) * 3600 : 0;
+  if (!Number.isFinite(timeS) || timeS <= 0) continue;
 
   if (!adj.has(aId)) adj.set(aId, []);
   if (!adj.has(bId)) adj.set(bId, []);
-  adj.get(aId).push({ to: bId, w });
-  adj.get(bId).push({ to: aId, w });
+  adj.get(aId).push({ to: bId, w: timeS, distanceKm, trackId: t.id, max_speed_kmh: speedKmh });
+  adj.get(bId).push({ to: aId, w: timeS, distanceKm, trackId: t.id, max_speed_kmh: speedKmh });
 }
   adjacencyCache = adj;
   if (state.dirty) state.dirty.network = false;

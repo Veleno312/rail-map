@@ -136,10 +136,52 @@ function removeNonStationTracks(){
       state.tracks.delete(trackId);
     }
   }
+  if (typeof updateRailLinksFromTracks === "function") updateRailLinksFromTracks();
+}
+
+function bumpStationStamp(){
+  state.stationStamp = (Number(state.stationStamp) || 0) + 1;
+}
+
+function bumpTrackStamp(){
+  state.trackStamp = (Number(state.trackStamp) || 0) + 1;
+}
+
+function updateRailLinksFromTracks(){
+  if (!state || !state.tracks || !state.railLinks) return;
+  if (state.realInfra?.success) return;
+  state.railLinks.clear();
+  const nodes = state.nodes || new Map();
+  for (const track of state.tracks.values()){
+    if (!track) continue;
+    if (track.status && track.status !== "built") continue;
+    const fromNode = nodes.get(track.from);
+    const toNode = nodes.get(track.to);
+    if (!fromNode || !toNode) continue;
+    const baseDistance = Number(track.distance_km ?? track.distanceKm ?? track.cost?.distanceKm ?? 0);
+    const computed = distanceKmBetween(fromNode.lat, fromNode.lon, toNode.lat, toNode.lon);
+    const distance = Number(baseDistance) || (Number.isFinite(computed) ? computed : 0);
+    const maxSpeed = Math.max(1, Number(track.maxSpeedKmh ?? track.max_speed_kmh ?? track.cost?.estimatedMaxSpeed ?? 120));
+    state.railLinks.set(track.id, {
+      id: track.id,
+      a: track.from,
+      b: track.to,
+      distance_km: distance,
+      max_speed_kmh: maxSpeed,
+      lanes: Math.max(1, Number(track.lanes || 1)),
+      source: "constructed"
+    });
+  }
+  if (typeof bumpTrackStamp === "function") bumpTrackStamp();
 }
 
 function populateNodesWithStations(){
   if (!state.nodes) state.nodes = new Map();
+
+  const manageRailNodes = !(state.realInfra?.success);
+  if (manageRailNodes && state.railNodes && typeof state.railNodes.clear === "function") {
+    state.railNodes.clear();
+  }
 
   // Remove any existing station entries so we can rebuild fresh
   const stationNodeIds = [];
@@ -168,6 +210,9 @@ function populateNodesWithStations(){
       rail_node_id: station.rail_node_id || null,
       isCustom: station.source === "custom"
     });
+    if (manageRailNodes && state.railNodes && typeof state.railNodes.set === "function") {
+      state.railNodes.set(station.id, { id: station.id, lat, lon });
+    }
   }
 
   if (typeof assignStationPopulationFromCities === "function") {
@@ -175,6 +220,12 @@ function populateNodesWithStations(){
   }
   if (typeof removeNonStationTracks === "function") {
     try { removeNonStationTracks(); } catch (_) {}
+  }
+  if (typeof updateRailLinksFromTracks === "function") {
+    try { updateRailLinksFromTracks(); } catch (_) {}
+  }
+  if (typeof bumpStationStamp === "function") {
+    try { bumpStationStamp(); } catch (_) {}
   }
 }
 
@@ -223,6 +274,11 @@ function applyRealInfrastructureData(payload){
     if (!from || !to) continue;
     const lanes = Math.max(1, Number(link.lanes || 1));
     const distance = Number(link.distance_km ?? link.distanceKm ?? 0);
+    const maxSpeed = Math.max(1, Number(link.max_speed_kmh ?? link.maxSpeedKmh ?? 120));
+    const buildCost = Number(link.build_cost ?? link.cost?.constructionCost ?? 0);
+    const maintenanceCost = Number(link.maintenance_cost ?? link.cost?.maintenanceCost ?? 0);
+    const demolishCost = Number(link.demolish_cost ?? Math.round(buildCost * 0.35));
+    const tunnels = Number(link.tunnels_km ?? link.tunnelKm ?? 0);
     const track = {
       id,
       from,
@@ -230,10 +286,21 @@ function applyRealInfrastructureData(payload){
       lanes,
       distance_km: distance,
       distanceKm: distance,
-      maxSpeedKmh: Math.max(1, Number(link.max_speed_kmh ?? link.maxSpeedKmh ?? 120)),
+      max_speed_kmh: maxSpeed,
+      maxSpeedKmh: maxSpeed,
+      build_cost: buildCost,
+      maintenance_cost: maintenanceCost,
+      demolish_cost: demolishCost,
+      tunnels_km: tunnels,
+      electrified: link.electrified ?? false,
+      gauge: link.gauge || "standard",
+      capacity: Number(link.capacity ?? 0),
+      structureType: link.structureType || "surface",
+      structureMult: Number(link.structureMult ?? 1),
+      cost: link.cost || null,
       status: "built",
       progress: 1,
-      source: "public"
+      source: String(link.source || "public")
     };
     state.tracks.set(id, track);
     state.railLinks.set(id, { ...link, id });
@@ -256,6 +323,7 @@ function applyRealInfrastructureData(payload){
   };
 
   if (typeof migrateLineStopsToStations === "function") migrateLineStopsToStations(state.lines);
+  if (typeof bumpTrackStamp === "function") bumpTrackStamp();
   return true;
 }
 
@@ -374,6 +442,7 @@ function resetNetworkState(){
   state.osmRailImportError = null;
 
   if (typeof trainVis_clearAll === "function") trainVis_clearAll();
+  if (typeof updateRailLinksFromTracks === "function") updateRailLinksFromTracks();
 }
 
 function exportStateSnapshot(){
@@ -386,6 +455,16 @@ function exportStateSnapshot(){
     progress: Number(t.progress || 0),
     structureType: t.structureType || "surface",
     structureMult: Number(t.structureMult || 1),
+    distance_km: Number(t.distance_km ?? 0),
+    max_speed_kmh: Number(t.max_speed_kmh ?? 0),
+    build_cost: Number(t.build_cost ?? 0),
+    maintenance_cost: Number(t.maintenance_cost ?? 0),
+    demolish_cost: Number(t.demolish_cost ?? 0),
+    tunnels_km: Number(t.tunnels_km ?? 0),
+    electrified: !!t.electrified,
+    gauge: t.gauge || "",
+    capacity: Number(t.capacity ?? 0),
+    source: t.source || null,
     cost: t.cost || null
   }));
 
@@ -506,14 +585,29 @@ function applyStateSnapshot(snapshot){
 
   for (const t of (snapshot.tracks || [])) {
     if (!state.nodes.has(t.from) || !state.nodes.has(t.to)) continue;
-    addTrack(t.from, t.to, t.lanes || 1, { silent: true, status: t.status || "built" });
+    const metadata = {
+      distance_km: t.distance_km,
+      max_speed_kmh: t.max_speed_kmh,
+      build_cost: t.build_cost,
+      maintenance_cost: t.maintenance_cost,
+      demolish_cost: t.demolish_cost,
+      tunnels_km: t.tunnels_km,
+      electrified: t.electrified,
+      gauge: t.gauge,
+      capacity: t.capacity,
+      structureType: t.structureType,
+      structureMult: t.structureMult
+    };
+    addTrack(t.from, t.to, t.lanes || 1, {
+      silent: true,
+      status: t.status || "built",
+      metadata,
+      cost: t.cost || null
+    });
     const trackId = `TK-${edgeKey(t.from, t.to)}`;
     const tr = state.tracks.get(trackId);
     if (tr) {
-      tr.status = t.status || tr.status;
       tr.progress = Number(t.progress || tr.progress || 0);
-      tr.structureType = t.structureType || tr.structureType;
-      tr.structureMult = Number(t.structureMult || tr.structureMult || 1);
       tr.cost = t.cost || tr.cost;
       try { track_applyStyle?.(tr); } catch (_) {}
     }
@@ -911,6 +1005,9 @@ function setMapLayerOption(key, on){
   }
   if (typeof render_overlay === "function") {
     try { render_overlay(); } catch (_) {}
+  }
+  if (key === "showCountryBorders" && typeof renderWorldCountryBorders === "function") {
+    try { renderWorldCountryBorders(); } catch (_) {}
   }
   if (typeof syncMarkerVisibility === "function") {
     try { syncMarkerVisibility(); } catch (_) {}

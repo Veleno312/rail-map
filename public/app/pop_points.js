@@ -83,9 +83,21 @@ async function loadPopPoints(){
   const url = "/data/es/pop_points_es.json";
   try {
     const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!Array.isArray(data)) return;
+    if (!res.ok) {
+      console.warn(`[pop_points] no pop data (${res.status})`);
+      return;
+    }
+    const text = await res.text();
+    const trimmed = (text || "").trim();
+    if (!trimmed || trimmed[0] === "<") {
+      console.warn(`[pop_points] response at ${url} is not JSON (starts with '${trimmed[0] || ""}')`);
+      return;
+    }
+    const data = JSON.parse(trimmed);
+    if (!Array.isArray(data)) {
+      console.warn("[pop_points] invalid format (expected array)");
+      return;
+    }
     popPoints = data.filter(item => item && Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)));
     buildPopGrid();
     console.info(`[pop_points] loaded ${popPoints.length} entries`);

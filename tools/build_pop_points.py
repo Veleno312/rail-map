@@ -11,6 +11,12 @@ PLACE_WEIGHTS = {
     "hamlet": 300,
     "suburb": 5000,
     "neighbourhood": 3000,
+    "locality": 1500,
+    "quarter": 800,
+    "district": 1500,
+    "borough": 2500,
+    "settlement": 600,
+    "isolated_dwelling": 150,
 }
 
 

@@ -1,4 +1,5 @@
-/* global state */
+/* global state, computeStationLineCounts */
+
 const STATION_PREFIX = "ST-";
 const DEFAULT_STATION_COVERAGE_KM = 10;
 const toRad = Math.PI / 180;
@@ -13,6 +14,51 @@ function stationDistanceKm(lat1, lon1, lat2, lon2){
   return 6371 * c;
 }
 
+function computeCityStationShares(city, stationList, coverageKm, linesMap = new Map()){
+  const cityLat = Number(city.lat);
+  const cityLon = Number(city.lon);
+  const cityPop = Math.max(0, Number(city.population ?? city.pop ?? city.pob ?? 0));
+  if (!Number.isFinite(cityLat) || !Number.isFinite(cityLon) || cityPop <= 0 || !stationList.length) return [];
+  const candidates = [];
+  for (const station of stationList){
+    if (!station || !station.active) continue;
+    const coverage = Math.max(0, Number(station.coverageKm ?? coverageKm));
+    if (!coverage) continue;
+    const dist = stationDistanceKm(station.lat, station.lon, cityLat, cityLon);
+    if (!Number.isFinite(dist) || dist > coverage) continue;
+    const lineCount = Math.max(0, Number(linesMap.get(station.id) || 0));
+    const score = (lineCount + 1) / Math.max(0.1, dist);
+    candidates.push({ station, dist, coverage, score, lines: lineCount });
+  }
+  if (!candidates.length) return [];
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.dist - b.dist;
+  });
+  const main = candidates[0];
+  const primaryShare = Math.max(0.7, Math.min(0.9, 0.8 + Math.min(0.15, main.lines * 0.02)));
+  const remainderShare = 1 - primaryShare;
+  const secondaryWeightSum = candidates.slice(1).reduce((sum, entry) => sum + Math.max(0.01, entry.score), 0);
+  return candidates.map((entry) => {
+    const isMain = entry.station.id === main.station.id;
+    const share = isMain
+      ? primaryShare
+      : (secondaryWeightSum ? remainderShare * (Math.max(0.01, entry.score) / secondaryWeightSum) : remainderShare / Math.max(1, candidates.length - 1));
+    return {
+      stationId: entry.station.id,
+      stationName: entry.station.name,
+      cityId: String(city.id || city.name || `${cityLat}_${cityLon}`),
+      cityName: city.name || city.city || `City ${city.id || ""}`,
+      share,
+      sharePct: share,
+      sharePop: share * cityPop,
+      distanceKm: entry.dist,
+      coverageKm: entry.coverage,
+      isMain
+    };
+  });
+}
+
 function cityKeyFromCity(city){
   if (!city) return null;
   const primary = city.id ?? city.city ?? city.name;
@@ -23,11 +69,11 @@ function cityKeyFromCity(city){
   return null;
 }
 
-function ensureCityStationAllocationMap(){
-  if (!state.cityStationAllocation || typeof state.cityStationAllocation.clear !== "function") {
-    state.cityStationAllocation = new Map();
+function ensureCityToStationMap(){
+  if (!state.cityToStationAllocation || typeof state.cityToStationAllocation.clear !== "function") {
+    state.cityToStationAllocation = new Map();
   }
-  return state.cityStationAllocation;
+  return state.cityToStationAllocation;
 }
 
 function ensureStationCityAllocationsMap(){
@@ -273,7 +319,7 @@ function assignStationPopulationFromCities(){
   if (!cities.length) return;
   const defaultCoverage = Number(window.STATION_COVERAGE_KM ?? DEFAULT_STATION_COVERAGE_KM);
 
-  const cityAlloc = ensureCityStationAllocationMap();
+  const cityAlloc = ensureCityToStationMap();
   const stationAlloc = ensureStationCityAllocationsMap();
   cityAlloc.clear();
   stationAlloc.clear();
@@ -298,63 +344,28 @@ function assignStationPopulationFromCities(){
     station.devTracks = trackConnections.get(station.id) || 0;
   }
 
+  const lineCounts = computeStationLineCounts();
   for (const city of cities){
-    const cityLat = Number(city.lat);
-    const cityLon = Number(city.lon);
-    if (!Number.isFinite(cityLat) || !Number.isFinite(cityLon)) continue;
-    const cityPop = Math.max(0, Number(city.population ?? city.pop ?? city.pob ?? 0));
-    if (!Number.isFinite(cityPop) || cityPop <= 0) continue;
     const cityKey = cityKeyFromCity(city);
     if (!cityKey) continue;
-    const cityName = city.name || city.city || cityKey;
-    const covering = [];
-    const weights = [];
-    for (const station of stationList){
-      const coverageKm = Math.max(0, Number(station.coverageKm ?? defaultCoverage));
-      if (!coverageKm) continue;
-      const dist = stationDistanceKm(station.lat, station.lon, cityLat, cityLon);
-      if (!Number.isFinite(dist) || dist > coverageKm) continue;
-      const devFactor = 1 + Math.min(6, station.devTracks || 0);
-      const distanceWeight = Math.max(0.1, coverageKm - dist);
-      covering.push({ station, dist, coverageKm });
-      weights.push(distanceWeight * devFactor);
+    const allocations = computeCityStationShares(city, stationList, defaultCoverage, lineCounts);
+    if (!allocations.length) continue;
+    cityAlloc.set(cityKey, allocations);
+    for (const entry of allocations){
+      const station = state.stations.get(entry.stationId);
+      if (station) {
+        station.coveredPopulation = (station.coveredPopulation || 0) + entry.sharePop;
+      }
+      const existing = stationAlloc.get(entry.stationId) || [];
+      existing.push(entry);
+      stationAlloc.set(entry.stationId, existing);
     }
-    if (!covering.length) continue;
-    const totalWeight = weights.reduce((sum, w) => sum + (Math.max(0, w || 0)), 0) || 1;
-    covering.forEach((entry, idx) => {
-      const share = cityPop * ((weights[idx] || 0) / totalWeight);
-      const station = entry.station;
-      station.coveredPopulation = (station.coveredPopulation || 0) + share;
-      const cityNodeId = String(city.id || cityKey);
-      const stationEntry = {
-        stationId: station.id,
-        stationName: station.name,
-        cityId: cityKey,
-        cityName,
-        cityNodeId,
-        share,
-        sharePct: cityPop ? (share / cityPop) : 0,
-        distanceKm: Number.isFinite(entry.dist) ? entry.dist : 0,
-        coverageKm: entry.coverageKm
-      };
-      const byCity = cityAlloc.get(cityKey) || [];
-      byCity.push(stationEntry);
-      cityAlloc.set(cityKey, byCity);
-      const byStation = stationAlloc.get(station.id) || [];
-      byStation.push(stationEntry);
-      stationAlloc.set(station.id, byStation);
-    });
   }
 
-  for (const entries of cityAlloc.values()){
-    entries.sort((a,b) => (Number(b.share || 0) - Number(a.share || 0)));
-  }
   for (const [stationId, entries] of stationAlloc.entries()){
     entries.sort((a,b) => (Number(b.share || 0) - Number(a.share || 0)));
     const station = state.stations.get(stationId);
-    if (station) {
-      station.coveredCities = entries.length;
-    }
+    if (station) station.coveredCities = entries.length;
   }
 
   for (const station of stationList){

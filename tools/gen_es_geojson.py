@@ -15,6 +15,22 @@ def check_osmium():
     return shutil.which("osmium")
 
 
+PLACE_TYPES = [
+    "city",
+    "town",
+    "village",
+    "hamlet",
+    "suburb",
+    "neighbourhood",
+    "locality",
+    "quarter",
+    "district",
+    "borough",
+    "settlement",
+    "isolated_dwelling",
+]
+
+
 def human_size(path):
     try:
         size = path.stat().st_size
@@ -69,7 +85,7 @@ def main():
 
     run_osmium([osmium_bin, "tags-filter", str(input_pbf), "n/railway=station,n/railway=halt", "-o", str(stations_osm)])
     run_osmium([osmium_bin, "tags-filter", str(input_pbf), "w/railway=rail,w/railway=light_rail,w/railway=highspeed", "-o", str(tracks_osm)])
-    run_osmium([osmium_bin, "tags-filter", str(input_pbf), "n/place=city,town,village,hamlet,suburb,neighbourhood", "-o", str(places_osm)])
+    run_osmium([osmium_bin, "tags-filter", str(input_pbf), f"n/place={','.join(PLACE_TYPES)}", "-o", str(places_osm)])
     run_osmium([osmium_bin, "export", str(stations_osm), "-o", str(stations_geojson)])
     run_osmium([osmium_bin, "export", str(tracks_osm), "-o", str(tracks_geojson)])
     run_osmium([osmium_bin, "export", str(places_osm), "-o", str(places_geojson)])

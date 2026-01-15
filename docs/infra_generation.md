@@ -7,6 +7,8 @@ osmium tags-filter spain-latest.osm.pbf n/railway=station,n/railway=halt -o stat
 osmium tags-filter spain-latest.osm.pbf w/railway=rail,w/railway=light_rail,w/railway=highspeed -o tracks.osm.pbf
 osmium export stations.osm.pbf -o data/raw/es/stations.geojson
 osmium export tracks.osm.pbf -o data/raw/es/tracks.geojson
+osmium tags-filter spain-latest.osm.pbf n/place=city,town,village,hamlet,suburb,neighbourhood,locality,quarter,district,borough,settlement,isolated_dwelling -o places.osm.pbf
+osmium export places.osm.pbf -o data/raw/es/places.geojson
 ```
 
 - Place the resulting GeoJSON files in `data/raw/es/`.
@@ -14,21 +16,12 @@ osmium export tracks.osm.pbf -o data/raw/es/tracks.geojson
 
 The script now only depends on the standard Python `json`/`math`/`pathlib` libraries and reads these GeoJSON files directly before snapping stations to rail nodes.
 
-You can automate both steps with:
+You can automate the geojson + pop point generation and the infrastructure build with:
 
 ```
 npm run data:es:geojson
+npm run data:es:pop
 npm run data:es:build
 ```
 
-On top of the local tooling, GitHub Actions keeps `public/data/es/*.json` refreshed on `workflow_dispatch` or monthly via `.github/workflows/generate_es_infra.yml`.
-
-Additionally, the build now generates micro population points from OSM place nodes:
-
-```
-osmium tags-filter spain-latest.osm.pbf n/place=city,town,village,hamlet,suburb,neighbourhood -o places.osm.pbf
-osmium export places.osm.pbf -o data/raw/es/places.geojson
-python tools/build_pop_points.py public/data/es
-```
-
-This produces `public/data/es/pop_points_es.json`, which the app reads at startup to estimate how many people live within 2/5/10/20 km of a potential station. The same step is embedded in `npm run data:es:pop` and the GH workflow that updates the prebuilt dataset.
+On top of the local tooling, GitHub Actions keeps `public/data/es/*.json` refreshed on `workflow_dispatch` or monthly via `.github/workflows/generate_es_infra.yml`. The action (and the `npm run data:es:geojson` helper) now exports `places.geojson` covering every documented `place` tag so even the tiniest village or hamlet is captured. Running `npm run data:es:pop` (or `python tools/build_pop_points.py public/data/es`) converts that to `public/data/es/pop_points_es.json`, which the app uses to show how many people live within the 2/5/10/20 km bands around a prospective station. The workflow also runs the pop-point builder so the published dataset always includes this micro-population layer.
