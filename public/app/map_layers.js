@@ -1355,13 +1355,42 @@ function renderRealInfrastructureOverlay(){
 
   layers.railInfra.clearLayers();
 
-  const linksFromRailLinks = (state.railLinks && typeof state.railLinks.values === "function")
+  const realLinks = (state.railLinks && typeof state.railLinks.values === "function")
     ? Array.from(state.railLinks.values())
     : [];
-  const tracksFromState = (state.tracks && typeof state.tracks.values === "function")
+  const builtTracks = (state.tracks && typeof state.tracks.values === "function")
     ? Array.from(state.tracks.values()).filter(t => t && (!t.status || t.status === "built"))
     : [];
-  const linksToRender = linksFromRailLinks.length ? linksFromRailLinks : tracksFromState;
+  const fallbackEdges = [];
+  if (!realLinks.length && !builtTracks.length && state.lines) {
+    const seen = new Set();
+    for (const line of state.lines.values()){
+      if (!line || !Array.isArray(line.stops) || line.stops.length < 2) continue;
+      const pairs = [];
+      for (let i = 0; i < line.stops.length - 1; i++) pairs.push([line.stops[i], line.stops[i + 1]]);
+      if (line.circular && line.stops.length >= 3) pairs.push([line.stops[line.stops.length - 1], line.stops[0]]);
+      for (const [a, b] of pairs){
+        const aId = String(a || "").trim();
+        const bId = String(b || "").trim();
+        if (!aId || !bId) continue;
+        const key = edgeKey(aId, bId);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        fallbackEdges.push({ a: aId, b: bId });
+      }
+    }
+  }
+  const railEdges = realLinks.map(link => ({ data: link, type: "rail" }));
+  const trackEdges = builtTracks.map(track => ({ data: track, type: "track" }));
+  const edges = railEdges.length
+    ? railEdges
+    : (trackEdges.length
+      ? trackEdges
+      : fallbackEdges.map(edge => ({ data: edge, type: "fallback" })));
+  if (!edges.length) return;
+
+  const sampleIds = edges.slice(0, 3).map(edge => edge.data.id || `${edge.data.a ?? edge.data.from}-${edge.data.b ?? edge.data.to}`);
+  console.debug(`[renderRealInfra] edges=${edges.length}`, sampleIds);
 
   const zoom = map.getZoom();
 
@@ -1385,71 +1414,45 @@ function renderRealInfrastructureOverlay(){
 
 
 
-  const nodes = state.railNodes || new Map();
+  const railNodes = state.railNodes || new Map();
 
   const stations = state.stations || new Map();
 
-  const resolveCoord = (id) => {
-
-    const node = nodes.get(String(id));
-
+  const resolveRailNode = (id) => {
+    const node = railNodes.get(String(id));
     if (node && Number.isFinite(Number(node?.lat)) && Number.isFinite(Number(node?.lon))) {
-
       return [Number(node.lat), Number(node.lon)];
-
     }
-
-    const station = stations.get(String(id));
-
-    if (station && Number.isFinite(Number(station?.lat)) && Number.isFinite(Number(station?.lon))) {
-
-      return [Number(station.lat), Number(station.lon)];
-
-    }
-
     return null;
+  };
 
+  const resolveStation = (id) => {
+    const station = stations.get(String(id));
+    if (station && Number.isFinite(Number(station?.lat)) && Number.isFinite(Number(station?.lon))) {
+      return [Number(station.lat), Number(station.lon)];
+    }
+    return null;
   };
 
 
 
-  const fallbackEdges = [];
-  if (!linksToRender.length && state.lines) {
-    const seen = new Set();
-    for (const line of state.lines.values()){
-      if (!line || !Array.isArray(line.stops) || line.stops.length < 2) continue;
-      const pairs = [];
-      for (let i = 0; i < line.stops.length - 1; i++) pairs.push([line.stops[i], line.stops[i + 1]]);
-      if (line.circular && line.stops.length >= 3) pairs.push([line.stops[line.stops.length - 1], line.stops[0]]);
-      for (const [a, b] of pairs){
-        const aId = String(a || "").trim();
-        const bId = String(b || "").trim();
-        if (!aId || !bId) continue;
-        const key = edgeKey(aId, bId);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        fallbackEdges.push({ a: aId, b: bId });
-      }
-    }
-  }
-  const routes = linksToRender.length ? linksToRender : fallbackEdges;
-  if (!routes.length) return;
-
   let idx = 0;
 
-  for (const link of routes){
+  for (const edge of edges){
 
     idx++;
 
     if (sampleStep > 1 && (idx % sampleStep) !== 0) continue;
 
-    const sourceId = String((link.a ?? link.from) || "").trim();
-    const targetId = String((link.b ?? link.to) || "").trim();
-    if (!link || !sourceId || !targetId) continue;
-
-    const from = resolveCoord(sourceId);
-
-    const to = resolveCoord(targetId);
+    const sourceId = String((edge.data.a ?? edge.data.from) || "").trim();
+    const targetId = String((edge.data.b ?? edge.data.to) || "").trim();
+    if (!edge.data || !sourceId || !targetId) continue;
+    const from = edge.type === "rail"
+      ? resolveRailNode(sourceId) || resolveStation(sourceId)
+      : resolveStation(sourceId);
+    const to = edge.type === "rail"
+      ? resolveRailNode(targetId) || resolveStation(targetId)
+      : resolveStation(targetId);
 
     if (!from || !to) continue;
 
@@ -2333,7 +2336,7 @@ function syncMarkerVisibility(){
 
 
 
-  track_updateVisibility?.();
+  if (window.track_updateVisibility) window.track_updateVisibility();
 
 }
 

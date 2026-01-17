@@ -130,6 +130,8 @@ function routeCacheKey(a, b){
 }
 
 window.invalidateRoutingCache = invalidateRoutingCache;
+window.addTrack = addTrack;
+window.track_updateVisibility = track_updateVisibility;
 
 function track_estimateBuild(fromId, toId, lanes=1){
   const a = state.nodes.get(fromId);
@@ -345,11 +347,7 @@ function track_updateVisibility(){
   }
 }
 
-function addTrack(fromId, toId, lanes=1, {silent=false, status="built", metadata={}, cost=null} = {}){
-  if (state.simNodeMode === "stations" && state.realInfra?.success) {
-    if (!silent) showToast("Real infrastructure is read-only; cannot edit tracks", "warning");
-    return null;
-  }
+function addTrack(fromId, toId, lanes = 1, { silent = false, status = "built", metadata = {}, cost = {} } = {}) {
   if (state.simNodeMode === "stations" && state.stations) {
     if (!state.stations.has(fromId) || !state.stations.has(toId)) {
       if (!silent) showToast("Tracks must connect stations", "warning");
@@ -359,18 +357,6 @@ function addTrack(fromId, toId, lanes=1, {silent=false, status="built", metadata
   const a = state.nodes.get(fromId);
   const b = state.nodes.get(toId);
   if (!a || !b) return null;
-  const midLat = (Number(a.lat) + Number(b.lat)) / 2;
-  const midLon = (Number(a.lon) + Number(b.lon)) / 2;
-  if (!spain_containsLatLon(a.lat, a.lon) || !spain_containsLatLon(b.lat, b.lon) || !spain_containsLatLon(midLat, midLon)) {
-    if (!silent) {
-      const cn = (typeof getCountrySpec === "function")
-        ? (getCountrySpec(state.countryId || "ES")?.name || "Spain")
-        : "Spain";
-      showToast(`Track must stay within ${cn}`, "warning");
-    }
-    return null;
-  }
-
   const key = edgeKey(fromId, toId);
   const trackId = `TK-${key}`;
 
@@ -437,7 +423,7 @@ function addTrack(fromId, toId, lanes=1, {silent=false, status="built", metadata
     });
   }
   if (!silent) {
-    showToast(`Track set: ${a.name} -> ${b.name}`, "success");
+    showToast(`Track set: ${a?.name || fromId} -> ${b?.name || toId}`, "success");
     updateUI();
     renderLines();
   }

@@ -1894,7 +1894,9 @@ flowSummary: {
     stationsLoaded: false,
     tracksLoaded: false,
     stationsUrl: null,
-    edgesUrl: null
+    edgesUrl: null,
+    stationCount: 0,
+    trackCount: 0
   },
   simNodeMode: "cities",
 };

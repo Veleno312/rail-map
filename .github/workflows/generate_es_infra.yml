@@ -1,22 +1,23 @@
-name: Generate Spain Infrastructure
+name: Generate ES Rail Infrastructure
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 6 1 * *'
+    - cron: "0 6 1 * *"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: true
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: "3.12"
 
       - name: Install osmium-tool
         run: |
@@ -27,33 +28,45 @@ jobs:
         run: |
           mkdir -p data/raw/es public/data/es
 
-      - name: Download Spain PBF
+      - name: Download Spain OSM PBF
         run: |
           curl -L -o data/raw/es/spain-latest.osm.pbf https://download.geofabrik.de/europe/spain-latest.osm.pbf
 
-      - name: Generate GeoJSON with osmium
+      - name: Extract stations geojson
         run: |
-          python tools/gen_es_geojson.py data/raw/es/spain-latest.osm.pbf
+          osmium tags-filter data/raw/es/spain-latest.osm.pbf n/railway=station,n/railway=halt -o data/raw/es/stations.osm.pbf
+          osmium export data/raw/es/stations.osm.pbf -o data/raw/es/stations.geojson
 
-      - name: Build population points
+      - name: Extract tracks geojson
         run: |
-          python tools/build_pop_points.py public/data/es
+          osmium tags-filter data/raw/es/spain-latest.osm.pbf w/railway=rail,w/railway=light_rail,w/railway=highspeed -o data/raw/es/tracks.osm.pbf
+          osmium export data/raw/es/tracks.osm.pbf -o data/raw/es/tracks.geojson
 
-      - name: Build rail infrastructure JSON
+      - name: Build infrastructure JSON
         run: |
           python tools/build_es_rail_infra.py public/data/es
 
-      - name: Show generated file sizes
+      - name: Report generated counts
         run: |
-          ls -lh public/data/es
+          python - <<'PY'
+          import json
+          from pathlib import Path
 
-      - name: Commit changes
+          for path in sorted(Path("public/data/es").glob("*.json")):
+              try:
+                  data = json.load(path.open())
+                  print(f"{path.name}: {len(data)} entries")
+              except Exception as exc:
+                  print(f"{path.name}: failed to read ({exc})")
+          PY
+
+      - name: Commit generated data
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/data/es/*.json
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+            echo "No updates to infrastructure data"
             exit 0
           fi
           git commit -m "Update ES rail infrastructure data (OSM)"

@@ -4,6 +4,8 @@ let activeInfraStatus = {
   source: "FALLBACK",
   stationsLoaded: false,
   tracksLoaded: false,
+  stationCount: 0,
+  trackCount: 0,
   stationsUrl: null,
   edgesUrl: null
 };
@@ -26,9 +28,10 @@ async function fetchJsonResource(url){
 }
 
 async function loadRealInfrastructure(countryCode){
+  const fallbackPayload = { source: "FALLBACK", stationCount: 0, trackCount: 0, nodeCount: 0 };
   if (typeof getCountryConfig !== "function") {
-    updateInfraStatus({ source: "FALLBACK", stationsLoaded: false, tracksLoaded: false });
-    return { source: "FALLBACK" };
+    updateInfraStatus({ source: "FALLBACK", stationsLoaded: false, tracksLoaded: false, stationCount: 0, trackCount: 0 });
+    return fallbackPayload;
   }
 
   const config = getCountryConfig(countryCode);
@@ -37,8 +40,8 @@ async function loadRealInfrastructure(countryCode){
   const linksUrl = config?.railLinksUrl || null;
 
   if (!stationsUrl || !nodesUrl || !linksUrl) {
-    updateInfraStatus({ source: "FALLBACK", stationsLoaded: false, tracksLoaded: false });
-    return { source: "FALLBACK" };
+    updateInfraStatus({ source: "FALLBACK", stationsLoaded: false, tracksLoaded: false, stationCount: 0, trackCount: 0 });
+    return fallbackPayload;
   }
 
   try {
@@ -47,10 +50,15 @@ async function loadRealInfrastructure(countryCode){
       fetchJsonResource(nodesUrl),
       fetchJsonResource(linksUrl)
     ]);
+    const stationCount = Array.isArray(stations) ? stations.length : 0;
+    const linkCount = Array.isArray(railLinks) ? railLinks.length : 0;
+    const nodeCount = Array.isArray(railNodes) ? railNodes.length : 0;
     updateInfraStatus({
       source: "REAL",
-      stationsLoaded: Array.isArray(stations),
-      tracksLoaded: Array.isArray(railLinks),
+      stationsLoaded: stationCount > 0,
+      tracksLoaded: linkCount > 0,
+      stationCount,
+      trackCount: linkCount,
       stationsUrl,
       edgesUrl: linksUrl
     });
@@ -59,12 +67,15 @@ async function loadRealInfrastructure(countryCode){
       stations,
       railNodes,
       railLinks,
-      config
+      config,
+      stationCount,
+      trackCount: linkCount,
+      nodeCount
     };
   } catch (err) {
     console.warn("Real infrastructure load failed:", err);
-    updateInfraStatus({ source: "FALLBACK", stationsLoaded: false, tracksLoaded: false });
-    return { source: "FALLBACK" };
+    updateInfraStatus({ source: "FALLBACK", stationsLoaded: false, tracksLoaded: false, stationCount: 0, trackCount: 0 });
+    return fallbackPayload;
   }
 }
 

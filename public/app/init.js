@@ -238,6 +238,9 @@ function applyRealInfrastructureData(payload){
 
   if (!stations.length || !railLinks.length) return false;
 
+  const stationCount = payload.stationCount ?? stations.length;
+  const linkCount = payload.trackCount ?? railLinks.length;
+
   if (state.stations && typeof state.stations.clear === "function") state.stations.clear();
   if (state.tracks && typeof state.tracks.clear === "function") state.tracks.clear();
   if (state.railNodes && typeof state.railNodes.clear === "function") state.railNodes.clear();
@@ -318,6 +321,8 @@ function applyRealInfrastructureData(payload){
     success: true,
     stationsLoaded: state.stations.size > 0,
     tracksLoaded: state.tracks.size > 0,
+    stationCount,
+    trackCount: linkCount,
     stationsUrl: payload.config?.stationsUrl || null,
     edgesUrl: payload.config?.railLinksUrl || null
   };
@@ -350,11 +355,17 @@ function applyFallbackStations(){
     migrateLineStopsToStations(state.lines);
   }
 
+  if (typeof ensureFallbackTracks === "function") {
+    try { ensureFallbackTracks(); } catch (_) {}
+  }
+
   state.simNodeMode = "cities";
   state.realInfra = {
     success: false,
     stationsLoaded: false,
     tracksLoaded: false,
+    stationCount: 0,
+    trackCount: 0,
     stationsUrl: null,
     edgesUrl: null
   };
@@ -916,6 +927,11 @@ async function boot(){
     osmRailImportLast: state.osmRailImportLast || null
   };
   console.log("Boot status:", bootStatus);
+  console.log("builder ready", {
+    tracks: state.tracks?.size || 0,
+    lines: state.lines?.size || 0,
+    simNodeMode: state.simNodeMode
+  });
   showToast(`Boot: nodes ${bootStatus.nodes} - tracks ${bootStatus.tracks}`, "info");
 
   syncMarkerVisibility();
@@ -946,8 +962,36 @@ window.ui_toggleTrackPlanning = ui_toggleTrackPlanning;
 window.ui_toggleClockDisplay = ui_toggleClockDisplay;
 window.setClockSpeed = setClockSpeed;
 window.setClockSpeedFromSlider = setClockSpeedFromSlider;
-window.construction_resolveIssue = construction_resolveIssue;
-window.construction_cancelQueued = construction_cancelQueued;
+if (typeof construction_resolveIssue === "function") {
+  window.construction_resolveIssue = construction_resolveIssue;
+}
+
+function ensureFallbackTracks(){
+  if (!state.stations || !state.tracks) return;
+  if (state.tracks.size) return;
+  const stations = Array.from(state.stations.values())
+    .filter(st => st && st.id && Number.isFinite(Number(st.lat)) && Number.isFinite(Number(st.lon)));
+  if (stations.length < 2) return;
+  const candidatePairs = [
+    [0, 1],
+    [0, Math.min(2, stations.length - 1)],
+    [1, Math.min(3, stations.length - 1)]
+  ];
+  for (const [aIndex, bIndex] of candidatePairs){
+    if (aIndex >= stations.length || bIndex >= stations.length) continue;
+    const from = stations[aIndex].id;
+    const to = stations[bIndex].id;
+    const key = edgeKey(from, to);
+    const trackId = `TK-${key}`;
+    if (state.tracks.has(trackId)) continue;
+    if (typeof addTrack === "function") {
+      addTrack(from, to, 1, { silent: true, status: "built", metadata: {}, cost: {} });
+    }
+  }
+}
+if (typeof construction_cancelQueued === "function") {
+  window.construction_cancelQueued = construction_cancelQueued;
+}
 window.setTrackLanes = setTrackLanes;
 window.createNewLine = createNewLine;
 window.selectLine = selectLine;

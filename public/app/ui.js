@@ -6521,7 +6521,7 @@ const infraStatus = (typeof getRealInfraStatus === "function")
 const infraLoaded = !!(infraStatus?.stationsLoaded && infraStatus?.tracksLoaded);
 const infraLabel = infraLoaded ? "Infra: REAL (OSM)" : "Infra: FALLBACK";
 const infraHint = infraLoaded
-  ? `Loaded from ${escapeHtml(infraStatus.stationsUrl || "data/es/stations_es.json")}`
+  ? `Loaded from ${escapeHtml(infraStatus.stationsUrl || "data/es/stations_es.json")} · Stations ${fmtNum((infraStatus.stationCount || 0))} · Links ${fmtNum((infraStatus.trackCount || 0))}`
   : "City-derived fallback stations";
 
 function renderStationsPanel(){
